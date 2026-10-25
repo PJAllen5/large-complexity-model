@@ -86,7 +86,26 @@ Subclass `Simulator` in [lcm/simulators.py](lcm/simulators.py) with `init`,
 
 ## Results
 
-See [results/REPORT.md](results/REPORT.md).
+Full numbers and charts are in [results/REPORT.md](results/REPORT.md).
+Headline from the first full run (82 min on an M3 MacBook):
+
+- **The odds work.** Across all 8 systems, the joint model's odds are off by
+  0.24 on average. An informed guess that knows each system's average odds is
+  off by 0.40. The truth falls inside the model's 90% range 87% of the time.
+- **Experience transfers.** Given only 64 examples of a system it never saw
+  in training, the LCM beat a fresh model on all 3 held-out systems. On
+  epidemics its forecast error was 0.10 against 0.25.
+- **Mixing systems doesn't beat specialists yet.** With the same training
+  budget, single-system models were more accurate on all 8 systems. On
+  epidemics and ecology the joint model came close. On gene networks it fell
+  below the baseline.
+- **Zero-shot is weak.** With no examples at all, it beat the baseline only
+  on neurons.
+
+At 0.8M parameters, this is the pattern you'd expect from a model that is
+too small. The joint model has to fit 8 systems into the capacity each
+specialist spends on one. The next experiment is to scale up the model and
+the number of systems, and check whether the gap to the specialists closes.
 
 ## What's next (Phase 1)
 
