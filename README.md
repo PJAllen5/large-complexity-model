@@ -86,7 +86,7 @@ Subclass `Simulator` in [lcm/simulators.py](lcm/simulators.py) with `init`,
 
 ## Results
 
-Full numbers and charts are in [results/REPORT.md](results/REPORT.md).
+Full numbers and charts are in [results/REPORT.md](results/REPORT.md). Every decision and test is recorded in [PROJECT_LOG.md](PROJECT_LOG.md).
 Headline from the first full run (82 min on an M3 MacBook):
 
 - **The odds work.** Across all 8 systems, the joint model's odds are off by
@@ -102,7 +102,7 @@ Headline from the first full run (82 min on an M3 MacBook):
 - **Zero-shot is weak.** With no examples at all, it beat the baseline only
   on neurons.
 
-At 0.8M parameters, this is the pattern you'd expect from a model that is
+At 1.08M parameters, this is the pattern you'd expect from a model that is
 too small. The joint model has to fit 8 systems into the capacity each
 specialist spends on one. The next experiment is to scale up the model and
 the number of systems, and check whether the gap to the specialists closes.
