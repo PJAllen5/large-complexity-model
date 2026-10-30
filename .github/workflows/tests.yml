@@ -1,0 +1,27 @@
+# Runs the test suite on every pull request and every push to main.
+# A red X on a PR means a test failed: open "Details" to see which one.
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      # The CPU-only build of PyTorch is about a tenth the size of the default
+      # (CUDA) one, and the tests don't need a GPU.
+      - name: Install
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-dev.txt
+      - name: Run tests
+        run: python -m pytest -q

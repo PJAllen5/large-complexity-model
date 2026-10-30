@@ -77,6 +77,17 @@ on an M3 MacBook and also works on CUDA or CPU. Results go to
 `results/REPORT.md` with charts. Finished runs are cached, so an interrupted
 experiment resumes where it stopped.
 
+### Tests
+
+```bash
+.venv/bin/pip install -r requirements-dev.txt && .venv/bin/python -m pytest -q
+```
+
+About 2 seconds on CPU. They check the data format, that normalisation never
+uses future values, the parameter count, that predictions are causal in time,
+that empty entity slots are ignored, sampling, and that a tiny model can learn.
+GitHub runs them on every pull request.
+
 ## Add a new system
 
 Subclass `Simulator` in [lcm/simulators.py](lcm/simulators.py) with `init`,
