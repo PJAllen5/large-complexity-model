@@ -212,3 +212,21 @@ a shared volume, then attach a GPU machine only for training.
 
 - **Decision:** document every decision, test and result in this file from
   now on. `CLAUDE.md` tells future sessions to keep it updated.
+
+### 2026-10-29: Tests and CI added
+
+- **What:** first test suite (`tests/test_lcm.py`, 18 tests, ~2 s on CPU) and a
+  GitHub Actions workflow that runs it on every pull request and push to main.
+- **What the tests cover:** every simulator's output shape, masks and symmetric
+  interaction graph; reproducible generation; normalisation using only the
+  context window (no future leakage); the mixed sampler drawing every domain;
+  the 1,081,380 parameter count; forward/loss/gradient sanity; causality in
+  time; empty entity slots having no effect on real entities; `sample_future`
+  shape; and a tiny model's loss falling over 60 training steps.
+- **Why:** nothing checked the code before. Leakage or a broken mask would make
+  experiment results meaningless without any visible error.
+- **Check that the tests bite:** two bugs were planted by hand and both were
+  caught: turning off causal attention failed the causality test, and
+  normalising over the whole episode failed the leakage test.
+- **Not covered:** forecast quality and `evaluate.py` metrics. Those come from
+  `experiment.py` runs, which are too slow for CI.
