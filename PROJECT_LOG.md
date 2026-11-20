@@ -552,3 +552,59 @@ with the laptop only measured *hardware* noise (≤ 1.8%), not training noise.
 never-seen-it + 3 fine-tune + 3 from-scratch), not 20. The entries
 "2026-10-24: Phase 0 full run", "2026-11-19: ORCA access and specs" and
 "2026-11-19: Phase 0 reproduced on ORCA" say 20.
+
+### 2026-11-19: Seed-noise results (seed 1 vs seed 0, both on ORCA)
+
+**Run:** `orca/seed_noise.sbatch`, seed 1, one A30, **17 min**. Results are on
+ORCA in `~/lcm-runs/phase0_seed1/` and aren't copied to the laptop yet.
+Data check: matches the laptop reference (10 files bit-identical, 6 within
+rounding).
+
+**How much results move from training chance alone (CRPS)**
+
+| Run type | Changes (seed 1 vs seed 0) |
+|---|---|
+| Specialists (8) | **small**: median ~0.6%, max 7.3% (neurons) |
+| Joint model (8 systems) | mostly ≤ 3.7%, but **neurons −18.7%, epidemic −9.0%** |
+| Never-seen-it (zero-shot, 3) | **large**: epidemic +25.4%, neurons +12.8%, Kuramoto +2.7% |
+| Fine-tune, 64 episodes (3) | moderate: up to 7.7% |
+| From scratch, 64 episodes (3) | **very large**: epidemic −52.6%, neurons −40.3%, Kuramoto −4.0% |
+| Odds error | main runs median 0.005 (max 0.040); few-shot max 0.142 |
+
+Summary from `compare.py --noise`: main runs median 2.7%, max 25.4%;
+few-shot median 5.8%, max 52.6%.
+
+**What happens to the Phase 0 findings**
+- **"Specialists beat the joint model": holds, except on epidemics, which
+  is a tie.** Epidemic went from 0.041 vs 0.040 (specialist wins) to 0.037
+  vs 0.037 (joint counted as winning), so the headline flipped from 0/8 to
+  1/8. Every other gap is far larger than the noise (e.g. Kuramoto 0.287 vs
+  0.145).
+- **"Zero-shot beats the baseline on neurons only": holds.** With seed 1,
+  neurons 0.728 vs baseline 1.097 still beats it; epidemic and Kuramoto
+  still lose.
+- **"Pretraining helps few-shot learning (3/3)": the direction holds, but
+  the size was overstated.** Scratch-to-fine-tune error ratio:
+
+  | System | Seed 0 | Seed 1 |
+  |---|---|---|
+  | neurons | 2.3× | 1.3× |
+  | epidemic | 2.5× | **1.1×** |
+  | Kuramoto | 1.3× | 1.3× |
+
+  Seed 0's from-scratch models were unlucky. The headline "epidemic error
+  0.10 vs 0.25" (2026-10-24 entry and README) overstates the effect. A fair
+  statement is "pretrained models were better in all 6 seed–system pairs,
+  by 1.1–2.5×".
+
+**Consequences for later experiments**
+- The `compare.py` reproduction rule ("main runs within 10%") only suits
+  same-seed comparisons, like laptop vs ORCA. Across seeds, the joint and
+  zero-shot runs moved up to 25%, so it would wrongly report FAIL.
+- **The scale-up must use several seeds per configuration**, and should
+  compare averages against this spread. One run per model can't separate a
+  real gain below ~20% from luck for joint or zero-shot models.
+- Few-shot conclusions need **more seeds or more few-shot episodes** than
+  64; from-scratch runs on 64 episodes vary by up to 50% between seeds.
+- One seed pair is a rough estimate. Seeds 2–4 (4 × 17 min, free; they can
+  run at the same time as separate jobs) would give a proper spread.
