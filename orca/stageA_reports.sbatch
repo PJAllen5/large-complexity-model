@@ -22,4 +22,6 @@ for dir in "$STAGEA_ROOT"/*_seed*/; do
     .venv/bin/python -u experiment.py --report-only --seed "$seed" --out "${dir%/}" \
         $(stageA_model_args "$size") "${STAGEA_COMMON[@]}"
 done
+echo "== Scaling report"
+.venv/bin/python orca/scaling_report.py "$STAGEA_ROOT"
 echo "== Done at $(date)"

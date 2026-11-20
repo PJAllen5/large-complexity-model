@@ -226,6 +226,23 @@ runs automatically once every task has succeeded. If any task fails, the
 report job never starts: paste the failed task's log to Claude, then rerun
 `bash orca/stageA_submit.sh`.
 
+**10c. Scaling report (seconds, on the login node):** once every task has
+finished, get the latest code and run the report. It judges the results
+against the success criteria fixed before running, and writes
+`~/lcm-runs/stageA_n20k/SCALING.md` and `scaling.png`.
+
+```bash
+git pull
+```
+
+```bash
+.venv/bin/python orca/scaling_report.py
+```
+
+**Paste the whole output to Claude.** It also works on partial results:
+sizes or seeds that aren't finished show as incomplete, and verdicts that
+need them say "NOT YET".
+
 ---
 
 ## Troubleshooting

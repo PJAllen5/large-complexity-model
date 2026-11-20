@@ -963,3 +963,66 @@ updated paths in the guide.
 
 **Not tested:** 20,000-episode data on ORCA (generation time, memory). The
 rerun of `--check` is that test.
+
+### 2026-11-20: Overfitting fixed; full Stage A launched; scaling report (PR C)
+
+**Overfitting re-check** (20,000 episodes, best-validation checkpoint;
+`~/lcm-runs/stageA_n20k`): all four validation curves **improve to the end
+of training**; none rise. Final validation NLL (lower is better):
+
+| Specialist | Before (2,000 episodes) | After (20,000 episodes) |
+|---|---|---|
+| Lorenz96 8.5M | −1.06 (best −2.14) | **−2.43** |
+| Lorenz96 28M | +5.82 (best −2.06) | **−2.46** |
+| Epidemic 8.5M | −3.96 | −3.99 |
+| Epidemic 28M | −4.00 | −4.05 |
+
+- More data didn't only stop the collapse: both Lorenz96 models now beat
+  their earlier *best* points.
+- An early hint, not yet a result: 28M edged out 8.5M on both systems.
+
+**Full Stage A launched**, 2026-11-20:
+- Data job 272190; A30 array 272191 (70 tasks); L40S array 272192 (34
+  tasks); report job 272193. That's 104 tasks; the 4 check runs were reused.
+- After submitting, the throttles were changed with `scontrol update ...
+  ArrayTaskThrottle` to L40S 3 and A30 5. *Why:* the 28M tasks on L40S were
+  the bottleneck (~4 h at 2 at once; ~2.5 h at 3).
+- Total stays at 8 GPUs. Briefly 9 were in use, because 6 A30 tasks had
+  started before the change; Slurm doesn't stop running tasks.
+
+**Built: `orca/scaling_report.py`** (PR C)
+- **Gap** = joint / specialist CRPS, geometric mean over the 8 systems,
+  per seed. Reported as mean ± sd per size, plus per-system gaps.
+- **Verdicts on the pre-registered criteria**:
+  - shrinks: 8.5M ≥ 0.10 below 1.08M, with 2× the seed noise shown
+    alongside;
+  - closes: ≤ 1.05 at some size;
+  - stop: > 1.2 at 28M.
+- **Decision: the baseline for the verdicts is the Stage A 1.08M run**
+  (same settings), not Phase 0's 1.34 (different precision, steps and data
+  size). 1.34 is shown for reference only.
+- **Secondary:** zero-shot wins per held-out system; pretraining's few-shot
+  advantage; the number of runs whose validation rose after their best
+  point.
+- **Output:** `SCALING.md` and `scaling.png` (gap vs size; seed dots, mean
+  line, the 1.05 and 1.2 lines). It handles partial results: unfinished
+  seeds are left out, and verdicts that need missing sizes say "NOT YET".
+- `stageA_reports.sbatch` now also runs it. The already-queued report job
+  272193 keeps the old script, because Slurm copies scripts at submission.
+
+**Tested**
+- 50/50 tests pass. New in `tests/test_scaling_report.py`, on synthetic
+  results with exact known gaps:
+  - the gap computation;
+  - a success case (shrinks, closes at 28M, no stop);
+  - a stop case;
+  - partial results giving "NOT YET";
+  - a missing run leaving that seed out;
+  - zero-shot, few-shot and overfitting counts;
+  - the markdown and chart being written.
+- Ran on the earlier simulated Stage A (real result files from tiny
+  models): it reads them correctly.
+- Chart checked visually; the line labels were moved so they don't
+  overlap seed points.
+
+**Not tested:** the real Stage A results, which are still running.
