@@ -104,12 +104,14 @@ Headline from the first full run (82 min on an M3 MacBook):
   0.24 on average. An informed guess that knows each system's average odds is
   off by 0.40. The truth falls inside the model's 90% range 87% of the time.
 - **Experience transfers.** Given only 64 examples of a system it never saw
-  in training, the LCM beat a fresh model on all 3 held-out systems. On
-  epidemics its forecast error was 0.10 against 0.25.
+  in training, the LCM beat a fresh model on all 3 held-out systems. A
+  second training seed confirmed the direction, but the size varies with
+  the seed: 1.1–2.5× lower error (see the seed-noise entry in
+  [PROJECT_LOG.md](PROJECT_LOG.md)).
 - **Mixing systems doesn't beat specialists yet.** With the same training
-  budget, single-system models were more accurate on all 8 systems. On
-  epidemics and ecology the joint model came close. On gene networks it fell
-  below the baseline.
+  budget, single-system models were more accurate on 7 of 8 systems;
+  epidemics is a tie within seed noise. On ecology the joint model came
+  close. On gene networks it fell below the baseline.
 - **Zero-shot is weak.** With no examples at all, it beat the baseline only
   on neurons.
 
