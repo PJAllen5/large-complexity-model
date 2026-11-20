@@ -51,13 +51,25 @@ def generate(name, n_episodes, seed, chunk=250):
     return out
 
 
-def build_datasets(data_dir, n_train, n_test, seed=0):
+def build_datasets(data_dir, n_train, n_test, seed=0, n_val=0):
+    """Simulate (or reuse cached) train / test / optional validation splits.
+
+    Each split has its own fixed seed, so the validation episodes never
+    overlap with training or test. A cached file of the wrong size is rebuilt.
+    """
     os.makedirs(data_dir, exist_ok=True)
     for i, name in enumerate(DOMAINS):
-        for split, n, s in (("train", n_train, seed + 100 * i), ("test", n_test, seed + 100 * i + 50)):
+        splits = [("train", n_train, seed + 100 * i), ("test", n_test, seed + 100 * i + 50)]
+        if n_val:
+            splits.append(("val", n_val, seed + 100 * i + 75))
+        for split, n, s in splits:
             path = os.path.join(data_dir, f"{name}_{split}.npz")
-            if not os.path.exists(path):
-                np.savez_compressed(path, **generate(name, n, s))
+            if os.path.exists(path):
+                with np.load(path) as f:
+                    if len(f["x"]) == n:
+                        continue
+                print(f"  rebuilding {path}: cached size differs from {n}")
+            np.savez_compressed(path, **generate(name, n, s))
 
 
 def load(data_dir, name, split, device, limit=None):

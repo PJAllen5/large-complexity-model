@@ -44,7 +44,7 @@ def _bars(ax, labels, series, title):
     ax.grid(axis="y", visible=False)
 
 
-def write_report(out, domains, held_out, cfg, test_sets, dev):
+def write_report(out, domains, held_out, cfg, test_sets, dev, model_kwargs=None):
     runs = {f[:-5]: json.load(open(os.path.join(out, "runs", f))) for f in os.listdir(os.path.join(out, "runs"))}
     J = runs["joint"]["eval"]
     S = {n: runs[f"specialist_{n}"]["eval"][n] for n in domains}
@@ -98,7 +98,7 @@ def write_report(out, domains, held_out, cfg, test_sets, dev):
     fig.savefig(os.path.join(out, "fig_odds.png"), dpi=150)
     plt.close(fig)
 
-    model = LCM().to(dev)
+    model = LCM(**(model_kwargs or {})).to(dev)
     model.load_state_dict(torch.load(os.path.join(out, "checkpoints", "joint.pt"), map_location=dev))
     model.eval()
     torch.manual_seed(0)

@@ -38,23 +38,25 @@ to use. The model never changes them.
 The larger sizes are **proposals, not yet decided**. Parameter counts were
 measured by building each model in code.
 
-| Setting | Phase 0 (run) | Scale-up (planned) | Phase 1 start (planned) |
+| Setting | Phase 0 (run) | Scale-up Stage A (decided 2026-11-20) | Phase 1 start (planned) |
 |---|---|---|---|
-| **Parameters** | **1.08M** | **~8.5M** | **~28–50M** |
-| Width (numbers per token) | 128 | 256 | 384–512 |
-| Layers (transformer blocks) | 4 | 8 | 12 |
-| Attention heads | 4 | 8 | 8 |
-| Mixture components (bell curves per forecast) | 4 | 4–8 | 8 |
-| Systems trained on | 8 simulated | ~20 simulated | simulated + 2–3 real datasets |
-| Episodes per system | 2,000 | ~5,000 | varies with the dataset |
+| **Parameters** | **1.08M** | **8.5M and 28M** (plus the 1.08M baseline) | **~28–50M** |
+| Width / layers / heads | 128 / 4 / 4 | 256 / 8 / 8 and 384 / 12 / 8 | 384–512 / 12 / 8 |
+| Mixture components (bell curves per forecast) | 4 | 4 | 8 |
+| Systems trained on | 8 simulated | **same 8** (more systems = Stage B, later) | simulated + 2–3 real datasets |
+| Episodes per system | 2,000 | 2,000; raise if validation shows overfitting | varies with the dataset |
+| Validation episodes per system | none | 256 (`--n-val`) | yes |
+| Few-shot episodes | 64 | **256** | to be decided |
+| Seeds per configuration | 1 (5 measured later) | **3** | 3+ |
 | Max entities / features per system | 12 / 4 | 12 / 4 | needs lifting to hundreds of entities |
 | Time steps: history shown / forecast | 48 / 16 | 48 / 16 | to be decided per dataset |
 | Patch (time steps per token) | 4 | 4 | 4–8 |
-| Training steps per model | 5,000 | ~30,000 | ~100,000+ |
-| Batch size (episodes per step) | 32 | ~128 | ~256 |
+| Training steps per model | 5,000 | set from the pilot | ~100,000+ |
+| Batch size (episodes per step) | 32 | set from the pilot (32 or 128) | ~256 |
 | Learning rate | 3e-4 (1e-4 for fine-tuning) | 3e-4 | tuned |
-| Hardware | MacBook Air M3, 8-core GPU | 1× RTX 4090 | 1× A100/H100 80 GB |
-| Time / cost | 82 min / free | ~10–30 h / ~$20–100 | 100s–1000s GPU-h / ~$500–5,000 |
+| Precision | fp32 | fp32, tf32 or bf16, set from the pilot's accuracy check | tbd |
+| Hardware | MacBook Air M3; rerun on ORCA A30 | ORCA A30 / L40S, at most ~8 GPUs at once | ORCA or rented A100/H100 |
+| Time / cost | 82 min laptop, 17 min A30 / free | est. 50–150 GPU-h / free | 100s–1000s GPU-h |
 
 ---
 
@@ -702,3 +704,96 @@ from a single run.
 - **Few-shot comparisons need more than 64 episodes.** From-scratch runs at
   that size would need ~40 seeds to show a 20% difference. Options: 256+
   episodes, or comparing against the multi-seed average with a wide margin.
+
+### 2026-11-20: Scale-up plan (Stage A) decided
+
+**Question:** does more model capacity close the joint model's gap with the
+specialists? Phase 0 put the gap down to the model being too small. This
+tests that.
+
+**Baseline:** the joint/specialist CRPS ratio, averaged over 5 seeds, is
+**1.34** (geometric mean over the 8 systems). Per system it ranges from
+1.05 (epidemic) to 1.89 (Kuramoto).
+
+**Success criteria, fixed before running**
+- *Gap shrinks:* the ratio falls by ≥ 0.10 at 8.5M. Joint and specialist
+  runs each vary ~2% between seeds, so this is well beyond noise.
+- *Gap closes:* the ratio is ≤ 1.05 (a tie within noise) at some size.
+- *Stop and rethink:* the ratio is still > 1.2 at 28M. Then capacity isn't
+  the bottleneck: investigate the data format, the training method or the
+  variety of systems before scaling further.
+- *Secondary:* zero-shot beats the baseline on more than 1 of 3 held-out
+  systems, and pretraining's few-shot advantage holds or grows.
+
+**Decisions (PJ accepted all the recommendations)**
+1. **Model size first (Stage A); more systems later (Stage B).** *Why:*
+   changing both at once couldn't say which one helped.
+2. **Sizes 8.5M and 28M**; 50M skipped (about twice the cost).
+3. **Specialists scaled to the same size**, for a fair comparison.
+4. **2,000 episodes per system**, raised only if validation NLL shows
+   overfitting. Data is free from the simulators.
+5. **Few-shot tests use 256 episodes, not 64.** Five seeds showed
+   from-scratch at 64 is too noisy (cv 33–45%).
+6. **3 seeds per configuration**, compared on averages.
+7. **At most ~8 ORCA GPUs at once** (shared resource).
+
+**Build order**
+- *PR A (this one):* size and training options, validation, faster-math
+  option, pilot.
+- *PR B:* one Slurm job per model with dependencies, and a scaling report.
+- Then the runs.
+
+### 2026-11-20: Scale-up PR A: options, validation, precision, pilot
+
+**Built**
+- **`experiment.py` options:** `--d --layers --heads --steps --batch --lr
+  --n-train --n-val --few-shot-eps --few-shot-steps --precision`. Defaults
+  reproduce Phase 0 exactly.
+- **`config.json` per output folder.** The experiment **refuses** to
+  continue in a folder whose saved settings differ. *Why:* runs are cached
+  by name, so a second model size in the same folder would silently reuse
+  the first size's results.
+- **Validation split** (`*_val.npz`, its own seed, never overlaps
+  train/test).
+  - `train()` logs the validation NLL alongside the training NLL, so
+    overfitting shows as a rising validation NLL.
+  - `build_datasets` now rebuilds a cached file whose size differs from
+    what's requested.
+- **Precision option** (`lcm/train.py`):
+  - `fp32` is exact (the default).
+  - `tf32` uses NVIDIA tensor cores for matrix multiplies.
+  - `bf16` runs the transformer blocks under autocast.
+  - The **forecast head always stays fp32**, so the forecast means and
+    widths aren't rounded. The attention mask is cast to match bf16 inputs.
+- **`report.py`** loads the joint model at the configured size.
+- **`orca/pilot.py` + `orca/pilot.sbatch`:**
+  - Part 1: step time and peak GPU memory for 1.08M / 8.5M / 28M × fp32 /
+    tf32 / bf16 × batch 32 / 128, with projected GPU-hours.
+  - Part 2: the 8.5M model trained 1,500 steps in each precision from
+    identical starts; validation NLL compared.
+  - Run once on an A30 and once on an L40S.
+
+**Tested on the laptop**
+- 36/36 tests pass. New in `tests/test_scaleup.py`:
+  - 8.5M / 28M parameter counts and forward pass;
+  - bf16 autocast on CPU keeps head outputs fp32, with the loss within 0.1
+    of exact;
+  - **validation leaves training identical** (same seed → identical
+    weights);
+  - an unknown precision is rejected;
+  - the validation split is separate from train, and is rebuilt on a size
+    change.
+- End-to-end `experiment.py --quick` with a small model (d=64), `--n-val
+  16` and short training:
+  - all 18 runs completed, with validation NLL logged;
+  - the report was written at that size;
+  - `config.json` was saved;
+  - rerunning with a different width was refused;
+  - rerunning with the same settings resumed 18/18 from cache.
+- `orca/pilot.py --tiny` runs on the laptop (fp32 only).
+
+**Not tested:** tf32 / bf16 on a real NVIDIA GPU, and actual speeds and
+memory. That's what the pilot measures on ORCA.
+
+**Open, to be set from the pilot:** training steps, batch size and
+precision for the scale-up.
