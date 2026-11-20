@@ -909,3 +909,57 @@ a full-length one.
 **Not tested:** real Slurm (dependencies, array throttling, `--export`),
 real GPUs and real run times. The `--check` launch on ORCA is the first
 real test.
+
+### 2026-11-20: Overfitting check: Lorenz96 specialists memorise; more data and early stopping
+
+**Run:** `bash orca/stageA_submit.sh --check`. Data job 271957 (24 s, CPU);
+A30 array 271958 (8.5M) and L40S array 271959 (28M); seed-0 specialists for
+epidemic and Lorenz96; 2,000 training episodes, 20k steps, bf16. **This was
+the first real test of the Stage A Slurm setup, and it worked:** the
+dependencies, both arrays and the shared data all behaved as designed.
+Results are in `~/lcm-runs/stageA/` on ORCA and are kept as evidence.
+
+**Result** (validation NLL; lower is better)
+
+| Specialist | Best val | Val at 20k | Training NLL at 20k |
+|---|---|---|---|
+| Epidemic 8.5M | still improving at 20k: −3.96 | | |
+| Epidemic 28M | still improving at 20k: −3.995 | | |
+| **Lorenz96 8.5M** | −2.14 at 10k | −1.06 | −2.88, still falling |
+| **Lorenz96 28M** | −2.06 at 8k | **+5.82** | −3.40, still falling |
+
+**Diagnosis: overfitting, not instability.** The training NLL falls
+smoothly to the end while the validation NLL turns up after ~8–10k steps,
+which is about 130–160 passes over the 2,000 episodes. The bigger model
+memorises more.
+
+**Decisions (PJ accepted all three)**
+1. **20,000 training episodes per system** (10×), so 20k steps is about 32
+   passes per specialist. This is the planned decision rule ("raise
+   episodes if validation shows overfitting"). Data is free from the
+   simulators.
+2. **Keep the best-validation checkpoint (early stopping).** `train()`
+   restores the weights from the logged step with the lowest validation
+   NLL, and each run records `best_step`. It's applied identically to every
+   size.
+3. **Rerun the check with the new settings** before the full launch, in a
+   fresh folder: `~/lcm-runs/stageA_n20k/`.
+
+**Note:** Phase 0 had no validation, so some of its runs (80 passes over
+2,000 episodes) may have overfitted too. Stage A reruns the 1.08M baseline
+under the new settings, so the size comparison is fair either way.
+
+**Built:** `train(..., keep_best=True)`, `best_step` in run results,
+`--n-train 20000` and the new folder in `orca/stageA_settings.sh`, and
+updated paths in the guide.
+
+**Tested**
+- 43/43 tests pass.
+- The new early-stopping test feeds a dipping-then-rising validation
+  sequence and checks the model ends with the dip's weights. A version of
+  the test where the best point happened to be the last step was rejected
+  as trivial. The final test **fails when early stopping is switched off**.
+- A quick end-to-end run records `best_step` and marks `*best` in the log.
+
+**Not tested:** 20,000-episode data on ORCA (generation time, memory). The
+rerun of `--check` is that test.

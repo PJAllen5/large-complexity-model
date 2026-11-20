@@ -59,12 +59,15 @@ def validation_nll(model, val_sets, precision="fp32", batch_size=64):
 
 
 def train(model, datasets, steps, batch_size=64, lr=3e-4, seed=0, warmup=200, log_every=500, tag="",
-          val=None, precision="fp32"):
+          val=None, precision="fp32", keep_best=True):
     """Train `model` on `datasets` ({name: tensors}) for `steps` updates.
 
     Returns the history as (step, train_nll) tuples, or (step, train_nll, val_nll)
     when `val` ({name: tensors}) is given. A validation NLL that rises while the
     training NLL keeps falling means the model is overfitting (memorising).
+
+    With `val` and `keep_best`, the model ends with the weights from the logged
+    step that had the lowest validation NLL ("early stopping"), not the last step.
     """
     set_precision(precision)
     sampler = MixedSampler(datasets)
@@ -74,6 +77,7 @@ def train(model, datasets, steps, batch_size=64, lr=3e-4, seed=0, warmup=200, lo
         opt, lambda s: min(1, (s + 1) / warmup) * 0.5 * (1 + math.cos(math.pi * min(s / steps, 1))))
     model.train()
     hist, t0, run = [], time.time(), 0.0
+    best_val, best_state = float("inf"), None
     for step in range(1, steps + 1):
         b = sampler(batch_size, gen)
         xn, stats = normalize(b["x"], b["ent_mask"], b["feat_mask"])
@@ -92,9 +96,15 @@ def train(model, datasets, steps, batch_size=64, lr=3e-4, seed=0, warmup=200, lo
                 v = validation_nll(model, val, precision)
                 hist.append((step, run / n, v))
                 msg += f"  val {v:7.3f}"
+                if keep_best and v < best_val:
+                    best_val = v
+                    best_state = {k: t.detach().clone() for k, t in model.state_dict().items()}
+                    msg += "  *best"
             else:
                 hist.append((step, run / n))
             print(f"{msg}  {time.time() - t0:6.0f}s", flush=True)
             run = 0.0
+    if best_state is not None:
+        model.load_state_dict(best_state)
     model.eval()
     return hist

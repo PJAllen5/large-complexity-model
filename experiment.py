@@ -130,7 +130,9 @@ def run(tag, domains_train, domains_eval, steps, data=None, init=None, seed=args
         hist = train(model, data, steps, batch_size=CFG["batch"], seed=seed, log_every=max(steps // 20, 1),
                      tag=tag, lr=1e-4 if init else CFG["lr"], val=val, precision=args.precision)
     save_atomic(lambda f: torch.save(model.state_dict(), f), ck)
-    res = dict(tag=tag, trained_on=domains_train, steps=steps, seed=seed, loss=hist,
+    # with validation on, train() keeps the weights from the best-validation step
+    best_step = min((h for h in hist if len(h) == 3), key=lambda h: h[2], default=(None,))[0]
+    res = dict(tag=tag, trained_on=domains_train, steps=steps, seed=seed, best_step=best_step, loss=hist,
                eval=evaluate(model, domains_eval))
     save_atomic(lambda f: json.dump(res, open(f, "w")), path)
     return res
