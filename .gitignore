@@ -7,3 +7,6 @@ results*/data/
 results*/checkpoints/
 results_quick/
 *.log
+
+# ORCA job logs
+orca/logs/

@@ -279,3 +279,71 @@ a shared volume, then attach a GPU machine only for training.
   - The 20 Phase 0-style runs are independent, so they could run in parallel
     as a Slurm job array.
   - Free access may replace the paid rental planned in the 2026-10-25 entry.
+
+### 2026-11-19: ORCA run plan and scripts (Phase 0 rerun)
+
+**Decisions**
+- **Option B (PJ runs, Claude writes):** PJ runs every command on ORCA
+  (username `pjallen5`) and pastes output back. Claude has no access to the
+  cluster. *Why:* PJ sees every command, and no extra setup is needed. The
+  alternative, an SSH connection from the Claude app, was declined for now.
+- **Repo made public** by PJ, so ORCA can `git clone` without GitHub keys.
+  Results come back by `rsync` to the laptop and are committed from there.
+  Note: commit author emails are now publicly visible.
+- **First ORCA job reproduces Phase 0 rather than starting the scale-up.**
+  *Why:* if the same experiment gives the same answers on ORCA, the setup is
+  trustworthy, and later changes can be put down to the model.
+- **Pass criterion, fixed before running:** every CRPS within **10%** of the
+  laptop run and the **same three headline answers** (0/8, 1/3, 3/3).
+  `orca/compare.py` checks this. The simulated data is identical (same
+  seeds), so only GPU arithmetic and random sampling differ.
+- **First run on an A30** (`short` partition, 3 h limit, 1 GPU). There are
+  more A30s, so jobs should start sooner. Switch to an L40S with
+  `--gres=gpu:l40s:1`. The run stays sequential on one GPU; parallel job
+  arrays are left for the scale-up.
+- **Python 3.12 module** on ORCA (`python/3.12.12-gcc-13.4.0`) instead of
+  3.14, as the safer bet for PyTorch's CUDA builds.
+
+**Built** (`orca/`)
+- `setup.sh`: one-time venv and package install on the login node.
+- `env.sh`: loads ORCA's Python module and sets the import path.
+- `check_gpu.sbatch` and `gpu_check.py`: GPU visible? correct maths? step
+  speed compared with the M3? then the test suite.
+- `phase0.sbatch`: full experiment into `results_orca/`, then the comparison.
+- `compare.py`: per-run CRPS differences plus the headline answers, ending
+  with PASS or FAIL.
+- `README.md`: step-by-step guide.
+- `.gitignore` now excludes `orca/logs/`.
+
+**Tested on the laptop** (no Slurm, CUDA or `module` here, so `module` and
+`nvidia-smi` were stand-ins):
+- All four shell scripts pass a syntax check.
+- `compare.py` gives PASS for the laptop run against itself; FAIL for the
+  laptop run against the undertrained quick run (all three headline answers
+  differ); and lists missing runs and FAILs on a partial folder.
+- A dry run of `check_gpu.sbatch` **caught a bug**: the import-path line in
+  `env.sh` failed under `set -u` (`BASH_SOURCE` unbound), so `lcm` couldn't
+  be imported. Fixed by using the repo root, since every script `cd`s there
+  first. After the fix the check reaches the GPU test and stops cleanly with
+  "CUDA available: False", as expected on a Mac.
+- A dry run of `phase0.sbatch`, with the experiment replaced by a stub,
+  completes and prints PASS.
+- The existing 18 tests still pass.
+
+**Not tested:** anything on ORCA itself: the module name, the PyTorch/CUDA
+driver match, Slurm directives, GPU speed and the real rerun. Those come from
+PJ's first jobs.
+
+### 2026-11-19: First ORCA login (username mix-up)
+
+- **Problem:** `ssh pallen1@login.orca.pdx.edu` and `pallen1_sou@…` both
+  failed with `Permission denied (publickey)`. A verbose ssh run showed the
+  laptop *did* offer its key (`~/.ssh/id_ed25519`), so ORCA had no key on
+  file for those usernames.
+- **Cause:** `pallen1` is PJ's **ACCESS-CI** sign-in for the Registry website
+  (`pallen1@access-ci.org`). The **cluster username is `pjallen5`**, listed
+  under *Identifiers → Network* in the Orca Registry profile.
+- **Result:** `ssh pjallen5@login.orca.pdx.edu` works, with 0 of 100 GB home
+  used. `orca/README.md` and the plan entry above now say `pjallen5`.
+- **Note:** ORCA's docs don't say where to find the username or how to fix
+  this error. Support is via the ORCA Zulip chat.
