@@ -1026,3 +1026,92 @@ of training**; none rise. Final validation NLL (lower is better):
   overlap seed points.
 
 **Not tested:** the real Stage A results, which are still running.
+
+### 2026-11-20: Stage A result: bigger models did not close the gap (stop criterion met)
+
+**Run:** full Stage A on ORCA. 104 tasks (plus 4 reused from the check):
+A30 array 272191 (1.08M and 8.5M), L40S array 272192 (28M), throttled to 5
++ 3 GPUs; report job 272193. **All completed; none failed.** Took ~2.5 h,
+free. Settings: bf16, 20k steps, batch 32, 20,000 episodes per system,
+best-validation checkpoint, 3 seeds. Results:
+[results_stageA/SCALING.md](results_stageA/SCALING.md); the run files are
+copied to `results_stageA/` (data and checkpoints stay on ORCA).
+
+**Gap = joint / specialist CRPS, geometric mean over 8 systems**
+
+| Size | Gap mean (sd) | Per seed |
+|---|---|---|
+| 1.08M | **1.449** (0.016) | 1.463, 1.431, 1.453 |
+| 8.5M | **1.540** (0.022) | 1.558, 1.545, 1.516 |
+| 28M | **1.517** (0.017) | 1.508, 1.536, 1.506 |
+
+**Verdicts on the pre-registered criteria**
+- Gap shrinks by ≥ 0.10 at 8.5M: **NO.** It *grew* by 0.091, about 3× the
+  seed noise.
+- Gap closes (≤ 1.05): **NO.**
+- Stop (> 1.2 at 28M): **YES.** "Capacity is the bottleneck" is not
+  supported, so we investigate before scaling further.
+
+**Per system: two opposite stories**
+
+| | Systems | Gap, 1.08M → 28M |
+|---|---|---|
+| Gap shrinks | Kuramoto, gene network, neurons, epidemic | 1.54 → 1.39, 1.15 → 1.06, 1.25 → 1.16, 1.25 → 1.13 |
+| Gap grows | **Lorenz96** | **3.57 → 5.17 (8.5M) → 4.07** |
+| Gap grows | **n-body** | **1.38 → 1.72 → 2.26** |
+| Gap grows slightly | predator–prey, boids | 1.18 → 1.26, 1.20 → 1.25 |
+
+**Secondary results**
+- **Zero-shot:** unchanged at every size (neurons 3/3; epidemic and
+  Kuramoto 0/3).
+- **Few-shot pretraining advantage:** shrinks for neurons (2.40× → 1.18×),
+  holds for epidemic (1.70× → 1.89×), negligible for Kuramoto (~1.05×).
+- **Overfitting:** 0 / 0 / 3 of 54 runs per size. The best checkpoint
+  covered those 3.
+- **Relative to Phase 0:** the 1.08M gap rose from 1.34 to 1.45 under the
+  Stage A settings. The specialists gained much more from 10× data and 4×
+  steps (e.g. Lorenz96 specialist 0.273 → 0.085) than the joint model did
+  (0.349 → 0.304).
+
+**Diagnosis from the existing results (no new compute)**
+1. **The joint model does improve with size, just less than the
+   specialists.** Geometric-mean CRPS vs 1.08M:
+
+   | | 8.5M | 28M |
+   |---|---|---|
+   | Joint | ×0.835 | ×0.764 |
+   | Specialists | ×0.786 | ×0.730 |
+
+   Lorenz96: joint 0.304 → 0.181, specialist 0.085 → 0.044. n-body: joint
+   0.262 → 0.189, specialist 0.189 → 0.084.
+2. **The joint models were still improving when training stopped**, more
+   so at bigger sizes. Best validation was at the final step in 9/9 joint
+   runs. Validation NLL change over the last 5k steps:
+
+   | Size | Joint | Specialists (mean) |
+   |---|---|---|
+   | 1.08M | −0.085 | −0.065 |
+   | 8.5M | −0.145 | −0.092 |
+   | 28M | −0.180 | −0.138 |
+
+   *Caveat:* the cosine learning-rate schedule anneals to 0 at the end,
+   which produces some late improvement in every run. The schedule is
+   identical for both, so the comparison holds.
+
+**Interpretation.** The leading explanation is that **the joint model is
+undertrained relative to the specialists**. With equal steps, it gets about
+1/8 of the per-system training (~2,500 steps each), and bigger models need
+more training. This is consistent with the gap growing with size. Not yet
+ruled out: interference between systems, especially the precise continuous
+dynamics of Lorenz96 and n-body, and a data format that serves continuous
+physics poorly.
+
+**Proposed next test (not yet decided):** train the joint model **8×
+longer (160k steps)**, so each system gets the same exposure as a
+specialist, at all 3 sizes × 3 seeds. Compare it with the existing 20k-step
+specialists.
+- Estimated ~9–12 GPU-h on ORCA.
+- If the gap then shrinks with size, the bottleneck was training budget,
+  not capacity.
+- If Lorenz96 and n-body still lag, look at interference or the data
+  format.
