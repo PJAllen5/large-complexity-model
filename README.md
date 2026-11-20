@@ -124,6 +124,25 @@ too small. The joint model has to fit 8 systems into the capacity each
 specialist spends on one. The next experiment is to scale up the model and
 the number of systems, and check whether the gap to the specialists closes.
 
+## Scale-up, Stage A (2026-11-20)
+
+The question: does a bigger model (1.08M → 8.5M → 28M parameters) close
+the joint model's gap with the specialists? We trained 3 seeds per size on
+ORCA, with success criteria fixed before running. Report:
+[results_stageA/SCALING.md](results_stageA/SCALING.md).
+
+- **No.** The gap went 1.45 → 1.54 → 1.52, so the pre-registered stop rule
+  applies.
+- **The joint model does get better with size** (24% lower error at 28M).
+  The specialists just improve slightly faster (27%).
+- **It's split by system.** The gap shrinks for Kuramoto, gene networks,
+  neurons and epidemics. It grows for Lorenz96 and n-body, the continuous
+  physics systems.
+- **The joint models were still improving when training stopped**, more so
+  when bigger. The leading explanation is that they're undertrained: with
+  equal steps, each system gets 1/8 of a specialist's training. The next
+  test is to train them 8× longer.
+
 ## What's next (Phase 1)
 
 - **Real data**, one field at a time:
