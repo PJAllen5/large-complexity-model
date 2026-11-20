@@ -608,3 +608,42 @@ few-shot median 5.8%, max 52.6%.
   64; from-scratch runs on 64 episodes vary by up to 50% between seeds.
 - One seed pair is a rough estimate. Seeds 2–4 (4 × 17 min, free; they can
   run at the same time as separate jobs) would give a proper spread.
+
+### 2026-11-19: Seeds 2–4 submitted; five-seed summary script
+
+**Decision:** run seeds 2–4 now (PJ, after discussing the value).
+- *Why:* one seed pair can't show which seed was the outlier. For example,
+  from-scratch epidemic scored 0.247 with seed 0 and 0.117 with seed 1, so
+  pretraining's epidemic advantage could be 1.1× or 2.5×.
+- The scale-up will need the current 1.08M model averaged over several seeds
+  as its baseline anyway.
+- Cost: 3 parallel ORCA jobs, ~17 min, free.
+
+**Built:** `orca/noise_summary.py` takes any number of seed folders and
+reports:
+- per run: mean CRPS, standard deviation, relative spread (cv) and range;
+- per run type: typical and worst cv;
+- per headline finding: how many seeds it holds in, flagging seed-dependent
+  ones;
+- pretraining's few-shot advantage (from-scratch / fine-tuned error) per
+  seed;
+- a rough number of seeds per model to detect a 10% or 20% improvement.
+  - Rule: n ≥ 8·cv²/effect², using the **worst** cv of each run type so it
+    covers every run.
+  - An earlier draft used the typical cv. It said 2 seeds were enough for
+    the joint model despite joint-neurons swinging ~15%, so it was changed.
+- The script rejects folders with duplicate seeds.
+
+**Tested**
+- `tests/test_noise_summary.py` (5 tests, synthetic seed folders with known
+  answers): per-run spread, seed-dependent findings, the advantage ratio,
+  duplicate-seed rejection, and the seeds-needed rule. 30/30 tests pass.
+- Preview on seed 0 plus seed 1 rebuilt from the pasted log: the epidemic
+  joint-vs-specialist result is correctly flagged as seed-dependent.
+  - Rough seeds-needed figures from that pair, for a 20% improvement: joint
+    5, zero-shot 6, from-scratch 51 (that run type is unusable at 64
+    episodes).
+  - These need the five-seed data to be trusted.
+
+**Pending:** seeds 2–4 on ORCA, then `noise_summary.py` across all five
+(`orca/README.md` step 8).

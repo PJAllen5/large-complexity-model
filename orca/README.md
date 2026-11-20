@@ -144,6 +144,27 @@ For another seed: `sbatch --export=ALL,SEED=2 orca/seed_noise.sbatch`.
 
 ---
 
+## 8. Summarise noise across all seeds (seconds, on the login node)
+
+Once the seed jobs have finished (`squeue -u $USER` is empty), get the latest
+code and summarise seed 0 (`results_orca/`) plus every seed in `~/lcm-runs/`.
+This only reads small result files, so it's fine on the login node.
+
+```bash
+git pull
+```
+
+```bash
+.venv/bin/python orca/noise_summary.py results_orca ~/lcm-runs/phase0_seed*
+```
+
+It prints each run's average and spread across seeds, the typical spread
+per run type, how many seeds each headline finding holds in, pretraining's
+few-shot advantage per seed, and a rough number of seeds the scale-up needs.
+**Paste the whole output to Claude.**
+
+---
+
 ## Troubleshooting
 
 | Problem | What to do |
