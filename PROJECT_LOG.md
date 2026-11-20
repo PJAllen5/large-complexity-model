@@ -504,3 +504,51 @@ spread**, with identical masks and graphs.
   seed-to-seed spread**, which is still unmeasured and probably larger,
   especially for the 64-episode few-shot runs. A second-seed run on ORCA
   (~17 min, free) would measure it before the scale-up.
+
+### 2026-11-19: Second-seed noise run set up
+
+**Why:** before the scale-up, we need to know how much results move by chance
+alone. Otherwise a "better" bigger model could just be luck. Comparing ORCA
+with the laptop only measured *hardware* noise (≤ 1.8%), not training noise.
+
+**Decisions**
+- **`experiment.py --seed N`** changes only the training randomness:
+  starting weights and batch order. The simulated data (fixed seeds) and
+  the true-odds replays (seed 999) stay fixed. The default is 0, so earlier
+  runs are unchanged. Each run's JSON now records its seed.
+- **Compare seed 1 with seed 0 on ORCA** (same hardware, same data), so
+  the differences are pure training noise.
+- **`orca/seed_noise.sbatch`** writes results to `~/lcm-runs/phase0_seed<N>/`,
+  **outside the repo**. *Why:* committing `results_orca/` from the laptop
+  made ORCA's later `git pull` refuse to overwrite its own untracked copy.
+  It was fixed by moving the files aside and checking with `diff -r` that
+  they were identical.
+- **`compare.py --noise A B`** gives a measurement, not a verdict:
+  - typical and largest |CRPS| and odds-error changes, separately for main
+    runs and few-shot runs;
+  - the largest movers;
+  - headline answers, with any flips;
+  - a data check against the laptop reference.
+- Data-check message fix: a size mismatch now says "different size: N vs M
+  episodes" instead of "masks/graphs differ".
+
+**Tested on the laptop**
+- `seed_noise.sbatch` ran end to end with stand-in `module` and
+  `nvidia-smi`, using `--quick` with seed 1 (7 min). The job wrote outside
+  the repo, recorded `"seed": 1`, and printed the noise report.
+- 25/25 tests pass.
+- In quick mode (300 training steps, badly undertrained), seed 1 vs seed 0
+  moved main-run CRPS by **4.7% median and 41.5% max** (epidemic
+  specialist). One headline answer flipped: joint beat the epidemic
+  specialist under seed 0 only. These numbers come from undertrained
+  models and **don't predict** the full-size noise. They do show that seed
+  noise can be much larger than hardware noise, which is why this run
+  matters.
+
+**Not tested:** the full-size noise run on ORCA. That's PJ's next job
+(`orca/README.md` step 7).
+
+**Correction:** Phase 0 trains **18 models** (1 joint + 8 specialists + 3
+never-seen-it + 3 fine-tune + 3 from-scratch), not 20. The entries
+"2026-10-24: Phase 0 full run", "2026-11-19: ORCA access and specs" and
+"2026-11-19: Phase 0 reproduced on ORCA" say 20.

@@ -3,6 +3,7 @@ specialists, and can it handle a system it has never seen?
 
     python experiment.py            # full run (~1-1.5 h on an M3 laptop)
     python experiment.py --quick    # small smoke run (~5 min)
+    python experiment.py --seed 1 --out other_dir   # same data, different training randomness
 
 Every finished run is cached in results/runs/, so an interrupted experiment
 picks up where it stopped. The report is written to results/REPORT.md.
@@ -26,6 +27,10 @@ HELD_OUT = ["neurons", "epidemic", "kuramoto"]   # systems hidden from the trans
 p = argparse.ArgumentParser()
 p.add_argument("--quick", action="store_true")
 p.add_argument("--out", default="results")
+p.add_argument("--seed", type=int, default=0,
+               help="training randomness (starting weights, batch order). The simulated data "
+                    "and the true-odds replays stay fixed, so rerunning with another seed "
+                    "measures how much results move by chance.")
 args = p.parse_args()
 
 if args.quick:
@@ -40,7 +45,7 @@ DATA = os.path.join(args.out, "data")
 for d in (RUNS, CKPT):
     os.makedirs(d, exist_ok=True)
 
-print(f"device {dev} | config {CFG}")
+print(f"device {dev} | seed {args.seed} | config {CFG}")
 t0 = time.time()
 build_datasets(DATA, CFG["n_train"], CFG["n_test"])
 print(f"data ready ({time.time() - t0:.0f}s)")
@@ -59,7 +64,7 @@ def evaluate(model, domains):
     return out
 
 
-def run(tag, domains_train, domains_eval, steps, data=None, init=None, seed=0):
+def run(tag, domains_train, domains_eval, steps, data=None, init=None, seed=args.seed):
     """Train a model (or load it if done) and evaluate. Cached by tag."""
     path = os.path.join(RUNS, f"{tag}.json")
     ck = os.path.join(CKPT, f"{tag}.pt")
@@ -77,7 +82,8 @@ def run(tag, domains_train, domains_eval, steps, data=None, init=None, seed=0):
         hist = train(model, data, steps, batch_size=32, seed=seed, log_every=max(steps // 5, 1), tag=tag,
                      lr=1e-4 if init else 3e-4)
     torch.save(model.state_dict(), ck)
-    res = dict(tag=tag, trained_on=domains_train, steps=steps, loss=hist, eval=evaluate(model, domains_eval))
+    res = dict(tag=tag, trained_on=domains_train, steps=steps, seed=seed, loss=hist,
+               eval=evaluate(model, domains_eval))
     json.dump(res, open(path, "w"))
     return res
 
