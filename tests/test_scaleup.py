@@ -45,7 +45,7 @@ def test_validation_does_not_change_training():
     for v in (None, val):
         torch.manual_seed(0)
         m = LCM(d=64, layers=2, heads=2)
-        hist = train(m, sets, 10, batch_size=4, seed=0, log_every=5, val=v)
+        hist = train(m, sets, 10, batch_size=4, seed=0, log_every=5, val=v, keep_best=False)
         weights.append(torch.cat([p.detach().flatten() for p in m.parameters()]))
     assert torch.equal(weights[0], weights[1])
     assert len(hist[0]) == 3 and np.isfinite(hist[-1][2])
@@ -64,3 +64,21 @@ def test_validation_split_is_separate_and_rebuilt_on_size_change(tmp_path):
     assert len(va["x"]) == 5 and not torch.equal(tr["x"][:5], va["x"])
     build_datasets(str(tmp_path), n_train=6, n_test=4, n_val=7)
     assert len(load(str(tmp_path), "boids", "val", "cpu")["x"]) == 7
+
+
+def test_keep_best_restores_lowest_validation_weights(monkeypatch):
+    """Validation scores dip at the 2nd check, then rise: the model must end with the 2nd check's weights."""
+    import lcm.train as T
+    scores, snapshots = iter([1.0, 0.5, 0.9, 1.2]), []
+
+    def fake_validation(model, val, precision="fp32"):
+        snapshots.append(torch.cat([p.detach().flatten().clone() for p in model.parameters()]))
+        return next(scores)
+
+    monkeypatch.setattr(T, "validation_nll", fake_validation)
+    torch.manual_seed(0)
+    m = LCM(d=64, layers=2, heads=2)
+    hist = T.train(m, _sets(), 8, batch_size=4, seed=0, log_every=2, val={"unused": None})
+    final = torch.cat([p.detach().flatten() for p in m.parameters()])
+    assert [h[2] for h in hist] == [1.0, 0.5, 0.9, 1.2]
+    assert torch.equal(final, snapshots[1]) and not torch.equal(final, snapshots[3])

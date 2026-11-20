@@ -191,7 +191,7 @@ accuracy check. **Paste both logs to Claude.**
 ## 10. Stage A: overfitting check, then the full scale-up
 
 All Stage A settings (bf16, 20k steps, 3 seeds, the three model sizes) live in
-`orca/stageA_settings.sh`. Results go to `~/lcm-runs/stageA/<size>_seed<N>/`.
+`orca/stageA_settings.sh`. Results go to `~/lcm-runs/stageA_n20k/<size>_seed<N>/`.
 The submit script only submits jobs, so it's fine on the login node. It skips
 tasks that already have results, so after a failure just run it again.
 
@@ -210,7 +210,7 @@ When `squeue -u $USER` is empty, read the validation curves and **paste the
 output to Claude**:
 
 ```bash
-.venv/bin/python orca/val_curves.py ~/lcm-runs/stageA/8.5M_seed0 ~/lcm-runs/stageA/28M_seed0
+.venv/bin/python orca/val_curves.py ~/lcm-runs/stageA_n20k/8.5M_seed0 ~/lcm-runs/stageA_n20k/28M_seed0
 ```
 
 **10b. Full Stage A (only after Claude has reviewed 10a):** 108 tasks over

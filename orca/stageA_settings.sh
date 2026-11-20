@@ -1,10 +1,13 @@
 # Stage A settings, shared by the submit script and every task (sourced, not run).
 # Decided 2026-11-20 (see PROJECT_LOG.md): bf16, 20k steps, batch 32, lr 3e-4,
-# 256 validation episodes, few-shot 256 episodes x 2,000 steps, seeds 0-2.
+# 20,000 training episodes per system (raised from 2,000 after the overfitting
+# check), 256 validation episodes (best-validation checkpoint kept),
+# few-shot 256 episodes x 2,000 steps, seeds 0-2.
+# The first overfitting check (2,000 episodes) stays in ~/lcm-runs/stageA.
 
-STAGEA_ROOT="${STAGEA_ROOT:-$HOME/lcm-runs/stageA}"
+STAGEA_ROOT="${STAGEA_ROOT:-$HOME/lcm-runs/stageA_n20k}"
 STAGEA_SEEDS=(0 1 2)
-STAGEA_COMMON=(--precision bf16 --steps 20000 --batch 32 --lr 3e-4 --n-val 256
+STAGEA_COMMON=(--precision bf16 --steps 20000 --batch 32 --lr 3e-4 --n-train 20000 --n-val 256
                --few-shot-eps 256 --few-shot-steps 2000 --data-dir "$STAGEA_ROOT/data")
 
 # size name -> width / layers / heads
