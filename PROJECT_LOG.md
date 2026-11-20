@@ -1165,3 +1165,67 @@ batch 32, lr 3e-4 with the cosine schedule stretched over 160k steps,
 on busy nodes).
 
 **Estimated cost:** ~9 GPU-h; ~1.5–2 h of waiting.
+
+### 2026-11-20: Longer joint training result: the joint model now beats the specialists
+
+**Run:** 9 joint models trained for 160,000 steps (1.08M / 8.5M / 28M × seeds
+0–2) on ORCA. Jobs: data 272978, A30 array 272979 (1.08M and 8.5M), L40S
+array 272980 (28M). All 9 COMPLETED with no failures or timeouts (checked
+with `sacct`). The 1.08M runs took ~29–31 min each on an A30. The other run
+times weren't recorded here. Free (ORCA). Report:
+[results_stageA_joint160k/SCALING.md](results_stageA_joint160k/SCALING.md)
+(generated on ORCA with `--specialists-from ~/lcm-runs/stageA_n20k`, so the
+specialists are the 20k-step Stage A ones).
+
+**Headline: gap = joint / specialist CRPS, geometric mean over 8 systems**
+(below 1.0 = the joint model is better)
+
+| Size | Gap at 20k steps | Gap at 160k steps (sd over 3 seeds) |
+|---|---|---|
+| 1.08M | 1.449 | **0.958** (0.007) |
+| 8.5M | 1.540 | **0.917** (0.013) |
+| 28M | 1.517 | **0.919** (0.013) |
+
+**Pre-registered checks** (judged on the 160k-step runs)
+- Gap shrinks (8.5M ≥ 0.10 below 1.08M): **NO**, 0.958 → 0.917 (a 0.040
+  drop, about 2× the seed noise). This check was written for a gap well
+  above 1. It doesn't fit once the gap has already closed at 1.08M.
+- Gap closes (≤ 1.05 at some size): **YES, at all three sizes.**
+- Stop (> 1.2 at 28M): **NO.**
+
+**Per system** (gap at 1.08M / 8.5M / 28M)
+- **Lorenz96:** 1.29 / 1.01 / 0.97. It was 3.57 / 5.17 / 4.07 at 20k.
+- **n-body:** 0.88 / 0.67 / 0.70. It was 1.38 / 1.72 / 2.26 at 20k.
+- **Epidemic:** 0.71 / 0.83 / 0.87.
+- **The rest are between 0.94 and 1.03.**
+- **Both systems that got worse with size at 20k now improve with size.**
+
+**Validation curves** (`orca/val_curves.py`)
+- All 9 still had their best validation NLL at the final step (none
+  overfitting).
+- Final validation NLL (negative log-likelihood of held-out episodes; lower
+  is better): 1.08M −2.20, 8.5M −2.44, 28M −2.50. Seeds agree within
+  0.005.
+- **On NLL, 28M is clearly better than 8.5M**, even though their CRPS gaps
+  are tied.
+- The learning rate follows a cosine decay to zero, so late improvements
+  are always small. The curves still slope down, though (−0.03 over the
+  last 24k steps).
+
+**Conclusion**
+- **The undertraining hypothesis is supported.** With equal training per
+  system (160k/8 = 20k steps, the same as a specialist), one shared model
+  beats 8 specialists by about 8% at 8.5M and 28M.
+- **Main caveat:**
+  - I checked the 72 Stage A specialists (20k steps) in `results_stageA/`
+    afterwards, and all 72 had their best validation at the final step, so
+    they were still improving too.
+  - This is a comparison at **equal per-system training**, not at
+    convergence (where both sides are trained until they stop improving).
+  - Longer-trained specialists could win back some or all of the gap.
+- **The transfer table in the report** is reused from the 20k-step
+  reference run, so it isn't new evidence.
+
+**Proposed next test (not yet decided):** train specialists for 160k steps
+(8 systems × 3 sizes × 3 seeds = 72 runs). This tests whether the joint
+model's win holds when the specialists also get 8× more training.
