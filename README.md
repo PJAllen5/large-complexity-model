@@ -110,9 +110,8 @@ Headline from the first full run (82 min on an M3 MacBook):
   [PROJECT_LOG.md](PROJECT_LOG.md)).
 - **Mixing systems doesn't beat specialists yet.** With the same training
   budget, single-system models were more accurate on 7 of 8 systems;
-  epidemics is a tie within seed noise. On
-  epidemics and ecology the joint model came close. On gene networks it fell
-  below the baseline.
+  epidemics is a tie within seed noise. On ecology the joint model came
+  close. On gene networks it fell below the baseline.
 - **Zero-shot is weak.** With no examples at all, it beat the baseline only
   on neurons.
 
