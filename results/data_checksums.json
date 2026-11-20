@@ -1,18 +1,82 @@
 {
- "boids_test.npz": "5b9c5672793c484fe16156c235e71e876dc8026cd3adff3388d055e1605a8b4f",
- "boids_train.npz": "a182088d6b139638c1c81e9460bb47b14e1fcd3b97404c5fc87521356061dea9",
- "epidemic_test.npz": "32fd39a2939ce0d8f0311b6a4aa3ba3b824c4fc43ddcffaaef1af7a1a10fed9b",
- "epidemic_train.npz": "4d110a8e199a7bc64bb806a5988e27668bb48ebc91c437469885d0d43af22c05",
- "gene_reg_test.npz": "0da238273671e3e4624cdcd2b01cd0e610fafa6a2a2a94867763dd901bf62a3d",
- "gene_reg_train.npz": "967328c5fe2befcc07b7d534d1e88c7fd4d73d8c8fb91277473172a5ad690256",
- "kuramoto_test.npz": "27a70245fe89441e1568c64a7cbe6d4a0fbd5274cdf6cad2681bb0a5ccb2b8f7",
- "kuramoto_train.npz": "469581435dd150c96f4fc2057b386f8d98eecd7675d41d562ddfddeda6189ee4",
- "lorenz96_test.npz": "29e503e1fef37528fc590ad6b82d4b5173aaa466e4397b6637cc98e2ebdc4615",
- "lorenz96_train.npz": "f6a8558e327c61d8393c496aee0e506066013db5d60800cc06d0508dff042ff4",
- "nbody_test.npz": "4c808d72a3d50976f888c2212340c9eb52790fe77209aef8de18f60085741544",
- "nbody_train.npz": "5d3526c7af2ad2c3070b766e4e7345454804bedb9539ab99d08abded28c2e566",
- "neurons_test.npz": "7583b937ed0afc1875c20f8a4954a21775dbbd4e165837fa2360cbfc7a4a10dc",
- "neurons_train.npz": "21dc51f901abe82b1cba47b799352a0353bf2d0c3d471a73fc4c397d687bef97",
- "predator_prey_test.npz": "a0fc8d2e3e2b97c7894f1c47101d70365b26c216624a57cfbca2157dd3d040b3",
- "predator_prey_train.npz": "1381970594f918714b346090303824931eab382e18f9b46be3e4878ca4b1368d"
+ "boids_test.npz": {
+  "exact": "5b9c5672793c484fe16156c235e71e876dc8026cd3adff3388d055e1605a8b4f",
+  "structure": "4cb4e153e836a292f6876dbc8d4770a60a52aefcac38fb66795312492d768690",
+  "spread": 3.047914048952248
+ },
+ "boids_train.npz": {
+  "exact": "a182088d6b139638c1c81e9460bb47b14e1fcd3b97404c5fc87521356061dea9",
+  "structure": "7ba17e4ff51f9f6fbfa59ae57614c5c8ab2d1979561752724e93ce18057c52c6",
+  "spread": 3.1061900490106265
+ },
+ "epidemic_test.npz": {
+  "exact": "32fd39a2939ce0d8f0311b6a4aa3ba3b824c4fc43ddcffaaef1af7a1a10fed9b",
+  "structure": "39491a7bc7ca7ab83013f2cf97e264196301eea8588f0c72f84638300b85cf47",
+  "spread": 0.35752583057039
+ },
+ "epidemic_train.npz": {
+  "exact": "4d110a8e199a7bc64bb806a5988e27668bb48ebc91c437469885d0d43af22c05",
+  "structure": "2931361543ec9df1be71783b04bb8378d31ae8fa4a2798072917abdce37ec398",
+  "spread": 0.3592057681090529
+ },
+ "gene_reg_test.npz": {
+  "exact": "0da238273671e3e4624cdcd2b01cd0e610fafa6a2a2a94867763dd901bf62a3d",
+  "structure": "71d01396e68149cec9025e63eb53b6cf100542b61133058e2ed20c98ecc44689",
+  "spread": 0.5709340380586466
+ },
+ "gene_reg_train.npz": {
+  "exact": "967328c5fe2befcc07b7d534d1e88c7fd4d73d8c8fb91277473172a5ad690256",
+  "structure": "8d6354817a236a77d1f088c88f0391fd3b08a8f46bd42b681c7628db8091ebae",
+  "spread": 0.591263015889046
+ },
+ "kuramoto_test.npz": {
+  "exact": "27a70245fe89441e1568c64a7cbe6d4a0fbd5274cdf6cad2681bb0a5ccb2b8f7",
+  "structure": "c581929987be91106f64f244f49b845260d6e590e3b50bbe2ee43730518ca20c",
+  "spread": 0.49991013469758677
+ },
+ "kuramoto_train.npz": {
+  "exact": "469581435dd150c96f4fc2057b386f8d98eecd7675d41d562ddfddeda6189ee4",
+  "structure": "1708f39020415943f3e0705e2c2c3c3747783e62cdd37d0c9736534129f4ca5b",
+  "spread": 0.4999990928430177
+ },
+ "lorenz96_test.npz": {
+  "exact": "29e503e1fef37528fc590ad6b82d4b5173aaa466e4397b6637cc98e2ebdc4615",
+  "structure": "cb7db3ec0889cad508143f5bcafc486c6b561b550bac2264599c8e63c1bfdb79",
+  "spread": 1.7521889120201481
+ },
+ "lorenz96_train.npz": {
+  "exact": "f6a8558e327c61d8393c496aee0e506066013db5d60800cc06d0508dff042ff4",
+  "structure": "03c339ffc0652c248bf08a8ee719912c28f6c4f724bd3cfdb72747a86f574c0e",
+  "spread": 1.9536431129176166
+ },
+ "nbody_test.npz": {
+  "exact": "4c808d72a3d50976f888c2212340c9eb52790fe77209aef8de18f60085741544",
+  "structure": "f026c6cd71b5670d15b7168ee2ab529f749758808c4bffd30e24a877b7d0d917",
+  "spread": 0.880540607497816
+ },
+ "nbody_train.npz": {
+  "exact": "5d3526c7af2ad2c3070b766e4e7345454804bedb9539ab99d08abded28c2e566",
+  "structure": "0ed138a6baeaab686f95884602fddc98015c070055bc7c4bfe587678341f0a63",
+  "spread": 0.9146493302308026
+ },
+ "neurons_test.npz": {
+  "exact": "7583b937ed0afc1875c20f8a4954a21775dbbd4e165837fa2360cbfc7a4a10dc",
+  "structure": "875914664bbda81243f4253a1331bfb132aac9320a03f8cc3cd52757281fbb87",
+  "spread": 0.7311552695673723
+ },
+ "neurons_train.npz": {
+  "exact": "21dc51f901abe82b1cba47b799352a0353bf2d0c3d471a73fc4c397d687bef97",
+  "structure": "274c77c8e7d28a226b7c0208e2accef74ef431a3d51b47bbab260eef48e662a7",
+  "spread": 0.7285114106389367
+ },
+ "predator_prey_test.npz": {
+  "exact": "a0fc8d2e3e2b97c7894f1c47101d70365b26c216624a57cfbca2157dd3d040b3",
+  "structure": "f827e67481b1669a3efa6790d80162aa35cb563064a3737942fae307c7cedf64",
+  "spread": 1.3368956118041548
+ },
+ "predator_prey_train.npz": {
+  "exact": "1381970594f918714b346090303824931eab382e18f9b46be3e4878ca4b1368d",
+  "structure": "f833cdf772fdf1163b9862012290555288c5298255e24085bb28a75656bb6cfc",
+  "spread": 1.389497402025543
+ }
 }

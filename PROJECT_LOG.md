@@ -419,3 +419,88 @@ the fixes.
 
 **Process note:** a 424-line PR was merged before its review finished. Next
 time, wait for the review before merging.
+
+### 2026-11-19: ORCA environment confirmed, GPU check passed
+
+**Cluster facts from PJ's account** (these differ from the public docs in places):
+- Node names are `orcaga01–25`, not `orca01–25` as in the docs.
+- Time limits: `short` 4 h, `normal` **1 day**, `long` **7 days**. The
+  docs say 7 and 20 days. Plan scale-up jobs to fit within 1 day, or use
+  `long`.
+- The `osg` partition is in use by Open Science Grid jobs. When checked,
+  13 nodes were idle in `short`.
+- `sacctmgr` shows **no per-user limits** on record for `pjallen5`.
+- Modules: `python/3.12.12-gcc-13.4.0` and `python/3.14.0` (default);
+  `cuda/11.8.0` and `cuda/12.9.0` (default, loaded).
+- NVIDIA driver **610.57.04**, which supports CUDA up to 13.3.
+
+**Setup** (`bash orca/setup.sh`): torch **2.15.0+cu132** (CUDA 13.2
+build), numpy **2.5.5**. The laptop has torch 2.14.1 and numpy 2.5.4.
+- The concern that the CUDA 13.2 build would need a newer driver than
+  ORCA's CUDA 12.9 module didn't apply: the driver is 610.
+
+**GPU check** (job 271910, A30 on `orcaga07`, ran 30 s): **PASS**.
+- CUDA available.
+- GPU vs CPU matmul difference: 5.05e-05.
+- One Phase 0 training step: **0.0150 s**, against 0.065 s on the M3
+  (**4.3× faster**).
+- 18/18 tests passed.
+
+**Next:** the Phase 0 rerun (`sbatch orca/phase0.sbatch`). At 4.3× the
+step speed, it should take roughly 20–30 min, not 82 min. That's an
+estimate; evaluation time hasn't been measured on the A30.
+
+### 2026-11-19: Phase 0 reproduced on ORCA
+
+**Run:** job 271911, `orca/phase0.sbatch`, one **A30** on `orcaga07`.
+Same config as the laptop run (2,000 episodes per system, 5,000 steps,
+20 models). **17.5 min** (laptop: 82 min, so 4.7× faster). Cost: free.
+Results are in [results_orca/REPORT.md](results_orca/REPORT.md).
+
+**First verdict: `FAIL`, caused by the data check, not ORCA.** All
+25 CRPS scores were within 2% and the headline answers matched, but the
+bit-for-bit data checksums differed for boids, Lorenz96 and n-body.
+
+**Investigation:** PJ copied `results_orca/` to the laptop with `rsync`, and
+the two data sets were compared directly.
+- 10 of 16 files are bit-identical: epidemic, Kuramoto, gene network,
+  neurons and predator–prey.
+- In the 6 boids, Lorenz96 and n-body files:
+  - at most 0.5% of values differ;
+  - the max difference is 4.8e-4, which is 1.6e-4 of the data spread;
+  - differences are zero at the first time step and grow over time;
+  - masks and graphs are identical.
+- **Cause:** last-digit floating-point rounding that differs between CPUs
+  (Apple M3 vs AMD EPYC) and builds up over the physics simulators' many
+  steps. Discrete and simpler simulators reproduce exactly.
+
+**Fix:** `compare.py` now accepts data that is bit-identical, **or** whose
+per-episode summary (mean, std, min, max) is within **0.1% of the data
+spread**, with identical masks and graphs.
+- Reference summaries are in `results/data_fingerprint.npz` (226 KB,
+  float32), alongside `results/data_checksums.json`.
+- New tests in `tests/test_compare.py` (now 25 tests in total):
+  - **accepted:** identical data; rounding-sized noise;
+  - **rejected:** a different seed; one episode simulated differently; a 1%
+    systematic change; a changed graph.
+- **Known blind spot**, written up as a test: a single changed value out of
+  ~3,000 per episode isn't detected. The realistic causes (seed, simulator
+  or library changes) alter many values at once.
+- An earlier version of the new test asked for a single corrupted value to
+  be caught. It wasn't, which is how the blind spot was found.
+
+**Final verdict: `PASS`.**
+- Data matches: 10 files bit-identical, 6 within rounding (worst 7.3e-6 of
+  the spread).
+- 25/25 CRPS within 10%; the largest difference was **1.8%** (`loo_neurons`).
+- Headline answers are identical: joint beats specialist **0/8**,
+  zero-shot beats baseline **1/3**, pretraining helps few-shot **3/3**.
+
+**What this tells us**
+- The ORCA setup is trustworthy, so later result changes can be put down to
+  the model.
+- Moving to a different machine, with the same seeds, moves scores by
+  ≤ 1.8%. That's the noise from hardware alone. **It is not the
+  seed-to-seed spread**, which is still unmeasured and probably larger,
+  especially for the 64-episode few-shot runs. A second-seed run on ORCA
+  (~17 min, free) would measure it before the scale-up.

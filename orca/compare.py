@@ -14,6 +14,7 @@ Verdicts:
   FAIL                a main run (joint, specialist, never-seen-it) moved more
                       than 10%, a headline answer flipped on a clear gap, runs
                       are missing, or the simulated data differs from the laptop's
+                      by more than float rounding (see "data identity" below)
 
 The 10% and 5% thresholds are judgement calls, not measured noise. Running the
 same experiment twice with different seeds would measure the real spread.
@@ -41,37 +42,77 @@ def load(folder):
 
 
 # ---------------------------------------------------------------- data identity
-def data_checksums(folder):
-    """sha256 of the array contents of every simulated dataset in folder/data."""
+# Simulated data is regenerated from fixed seeds on every machine. Discrete
+# simulators reproduce bit for bit, but physics-style ones (boids, Lorenz96,
+# n-body) pick up last-digit rounding differences between CPUs (seen: Apple M3
+# vs ORCA's AMD EPYC, max 1.6e-4 of the data spread). So the check accepts data
+# that is bit-identical OR whose per-episode summary (mean, std, min, max) is
+# within DATA_TOL of the data spread, with identical masks and graphs. A
+# different seed or a simulator bug changes those summaries by far more.
+# Blind spot: a single changed value out of ~3,000 per episode goes unnoticed.
+DATA_TOL = 1e-3
+FINGERPRINT = "data_fingerprint.npz"
+
+
+def _file_info(path):
+    arrs = np.load(path)
+    exact, structure = hashlib.sha256(), hashlib.sha256()
+    for k in sorted(arrs.files):
+        a = np.ascontiguousarray(arrs[k])
+        for h in (exact,) if k == "x" else (exact, structure):
+            h.update(f"{k}|{a.dtype}|{a.shape}|".encode())
+            h.update(a.tobytes())
+    x = arrs["x"].astype(np.float64)
+    stats = np.stack([x.mean((1, 2, 3)), x.std((1, 2, 3)), x.min((1, 2, 3)), x.max((1, 2, 3))], 1)
+    return dict(exact=exact.hexdigest(), structure=structure.hexdigest(), spread=float(x.std())), stats
+
+
+def data_info(folder):
+    """{file: (info, per-episode stats)} for every simulated dataset in folder/data."""
     d = os.path.join(folder, "data")
-    out = {}
     if not os.path.isdir(d):
-        return out
-    for f in sorted(os.listdir(d)):
-        if f.endswith(".npz"):
-            arrs = np.load(os.path.join(d, f))
-            h = hashlib.sha256()
-            for k in sorted(arrs.files):
-                a = np.ascontiguousarray(arrs[k])
-                h.update(f"{k}|{a.dtype}|{a.shape}|".encode())
-                h.update(a.tobytes())
-            out[f] = h.hexdigest()
-    return out
+        return {}
+    return {f: _file_info(os.path.join(d, f)) for f in sorted(os.listdir(d)) if f.endswith(".npz")}
+
+
+def write_reference(folder):
+    info = data_info(folder)
+    if not info:
+        sys.exit(f"No .npz files in {folder}/data")
+    json.dump({f: i for f, (i, _) in info.items()}, open(os.path.join(folder, CHECKSUMS), "w"), indent=1)
+    np.savez_compressed(os.path.join(folder, FINGERPRINT), **{f: st.astype(np.float32) for f, (_, st) in info.items()})
+    print(f"wrote {folder}/{CHECKSUMS} and {folder}/{FINGERPRINT} for {len(info)} files")
 
 
 def check_data(ref_dir, new_dir):
     """Returns (ok, message)."""
-    path = os.path.join(ref_dir, CHECKSUMS)
-    if not os.path.exists(path):
-        return True, f"data check skipped: no {path}"
-    ref = json.load(open(path))
-    new = data_checksums(new_dir)
+    path, fpath = os.path.join(ref_dir, CHECKSUMS), os.path.join(ref_dir, FINGERPRINT)
+    if not (os.path.exists(path) and os.path.exists(fpath)):
+        return True, f"data check skipped: no {path} / {fpath}"
+    ref, ref_stats = json.load(open(path)), np.load(fpath)
+    new = data_info(new_dir)
     if not new:
         return True, f"data check skipped: no {new_dir}/data folder"
-    bad = sorted(f for f in ref if new.get(f) != ref[f])
+    identical, close, bad = [], [], []
+    for f, r in ref.items():
+        if f not in new:
+            bad.append(f"{f} (missing)")
+            continue
+        info, stats = new[f]
+        if info["exact"] == r["exact"]:
+            identical.append(f)
+            continue
+        if info["structure"] != r["structure"] or stats.shape != ref_stats[f].shape:
+            bad.append(f"{f} (masks/graphs differ)")
+            continue
+        worst = float(np.abs(stats - ref_stats[f]).max() / r["spread"])
+        (close if worst <= DATA_TOL else bad).append(f"{f} ({worst:.1e} of spread)")
     if bad:
-        return False, f"simulated data DIFFERS from the reference for: {', '.join(bad)}"
-    return True, f"simulated data identical to the reference ({len(ref)} files)"
+        return False, f"simulated data DIFFERS from the reference: {', '.join(bad)}"
+    msg = f"simulated data matches ({len(identical)} files bit-identical"
+    if close:
+        msg += f"; {len(close)} within float rounding, worst: {max(close, key=lambda c: float(c.split('(')[1].split()[0]))}"
+    return True, msg + ")"
 
 
 # ---------------------------------------------------------------- headline answers
@@ -159,11 +200,7 @@ def main(ref_dir, new_dir):
 
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--write-checksums":
-        sums = data_checksums(sys.argv[2])
-        if not sums:
-            sys.exit(f"No .npz files in {sys.argv[2]}/data")
-        json.dump(sums, open(os.path.join(sys.argv[2], CHECKSUMS), "w"), indent=1)
-        print(f"wrote {len(sums)} checksums to {sys.argv[2]}/{CHECKSUMS}")
+        write_reference(sys.argv[2])
     elif len(sys.argv) == 3:
         main(sys.argv[1], sys.argv[2])
     else:
