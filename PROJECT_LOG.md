@@ -449,3 +449,58 @@ build), numpy **2.5.5**. The laptop has torch 2.14.1 and numpy 2.5.4.
 **Next:** the Phase 0 rerun (`sbatch orca/phase0.sbatch`). At 4.3× the
 step speed, it should take roughly 20–30 min, not 82 min. That's an
 estimate; evaluation time hasn't been measured on the A30.
+
+### 2026-11-19: Phase 0 reproduced on ORCA
+
+**Run:** job 271911, `orca/phase0.sbatch`, one **A30** on `orcaga07`.
+Same config as the laptop run (2,000 episodes per system, 5,000 steps,
+20 models). **17.5 min** (laptop: 82 min, so 4.7× faster). Cost: free.
+Results are in [results_orca/REPORT.md](results_orca/REPORT.md).
+
+**First verdict: `FAIL`, caused by the data check, not ORCA.** All
+25 CRPS scores were within 2% and the headline answers matched, but the
+bit-for-bit data checksums differed for boids, Lorenz96 and n-body.
+
+**Investigation:** PJ copied `results_orca/` to the laptop with `rsync`, and
+the two data sets were compared directly.
+- 10 of 16 files are bit-identical: epidemic, Kuramoto, gene network,
+  neurons and predator–prey.
+- In the 6 boids, Lorenz96 and n-body files:
+  - at most 0.5% of values differ;
+  - the max difference is 4.8e-4, which is 1.6e-4 of the data spread;
+  - differences are zero at the first time step and grow over time;
+  - masks and graphs are identical.
+- **Cause:** last-digit floating-point rounding that differs between CPUs
+  (Apple M3 vs AMD EPYC) and builds up over the physics simulators' many
+  steps. Discrete and simpler simulators reproduce exactly.
+
+**Fix:** `compare.py` now accepts data that is bit-identical, **or** whose
+per-episode summary (mean, std, min, max) is within **0.1% of the data
+spread**, with identical masks and graphs.
+- Reference summaries are in `results/data_fingerprint.npz` (226 KB,
+  float32), alongside `results/data_checksums.json`.
+- New tests in `tests/test_compare.py` (now 25 tests in total):
+  - **accepted:** identical data; rounding-sized noise;
+  - **rejected:** a different seed; one episode simulated differently; a 1%
+    systematic change; a changed graph.
+- **Known blind spot**, written up as a test: a single changed value out of
+  ~3,000 per episode isn't detected. The realistic causes (seed, simulator
+  or library changes) alter many values at once.
+- An earlier version of the new test asked for a single corrupted value to
+  be caught. It wasn't, which is how the blind spot was found.
+
+**Final verdict: `PASS`.**
+- Data matches: 10 files bit-identical, 6 within rounding (worst 7.3e-6 of
+  the spread).
+- 25/25 CRPS within 10%; the largest difference was **1.8%** (`loo_neurons`).
+- Headline answers are identical: joint beats specialist **0/8**,
+  zero-shot beats baseline **1/3**, pretraining helps few-shot **3/3**.
+
+**What this tells us**
+- The ORCA setup is trustworthy, so later result changes can be put down to
+  the model.
+- Moving to a different machine, with the same seeds, moves scores by
+  ≤ 1.8%. That's the noise from hardware alone. **It is not the
+  seed-to-seed spread**, which is still unmeasured and probably larger,
+  especially for the 64-episode few-shot runs. A second-seed run on ORCA
+  (~17 min, free) would measure it before the scale-up.
