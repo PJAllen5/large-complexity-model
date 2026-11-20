@@ -143,6 +143,20 @@ ORCA, with success criteria fixed before running. Report:
   equal steps, each system gets 1/8 of a specialist's training. The next
   test is to train them 8× longer.
 
+**Follow-up: 8× longer joint training (160k steps).** Report:
+[results_stageA_joint160k/SCALING.md](results_stageA_joint160k/SCALING.md).
+
+- **The joint model now beats the specialists at every size:** gap
+  0.96 / 0.92 / 0.92, against 1.45 / 1.54 / 1.52 at 20k steps. Each system
+  now gets as much training as a specialist does.
+- **Lorenz96 and n-body**, the systems that got worse with size before,
+  now improve with size. n-body ends up 30% better than its specialist.
+- **28M beats 8.5M on validation likelihood**, though not on the CRPS gap.
+- **Caveat:** the specialists (20k steps) and the joint models (160k
+  steps) were both still improving when training stopped. This is a win at
+  equal training per system, not at convergence. The next test is
+  specialists trained 8× longer too.
+
 ## What's next (Phase 1)
 
 - **Real data**, one field at a time:
