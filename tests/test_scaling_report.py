@@ -85,3 +85,17 @@ def test_report_writes_markdown_and_chart(tmp_path):
     text = open(os.path.join(root, "SCALING.md")).read()
     assert "Gap shrinks" in text and "| 1.08M | 2 of 2 |" in text
     assert os.path.getsize(os.path.join(root, "scaling.png")) > 1000
+
+
+def test_joint_from_one_run_specialists_from_another(tmp_path):
+    ref = _root(tmp_path / "ref", {"1.08M": [1.40, 1.42], "8.5M": [1.50, 1.52]})
+    long = _root(tmp_path / "long", {"1.08M": [1.20, 1.22], "8.5M": [1.05, 1.07]})
+    for d in os.listdir(long):                      # long-training folders hold only joint runs
+        for f in os.listdir(os.path.join(long, d, "runs")):
+            if f != "joint.json":
+                os.remove(os.path.join(long, d, "runs", f))
+    s = sr.report(long, specialists_from=ref)
+    assert s["8.5M"]["gaps"][0] == pytest.approx(1.05)
+    text = open(os.path.join(long, "SCALING.md")).read()
+    assert "Gap with the reference run's joint" in text and "| 1.08M | 2 of 2 | 1.210 |" in text
+    assert "1.410 |" in text                        # the reference run's own gap at 1.08M

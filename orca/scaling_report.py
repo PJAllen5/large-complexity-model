@@ -2,6 +2,9 @@
 
     python orca/scaling_report.py                      # reads ~/lcm-runs/stageA_n20k
     python orca/scaling_report.py <stageA results folder>
+    python orca/scaling_report.py ~/lcm-runs/stageA_joint160k --specialists-from ~/lcm-runs/stageA_n20k
+        (joint models from the first folder, specialists and transfer runs from the second;
+         also shows the gap with the reference run's own joint model)
 
 Reads every <size>_seed<N>/runs folder and writes SCALING.md and scaling.png
 into the results folder (and prints the report).
@@ -159,13 +162,32 @@ def write_chart(summary, path):
     plt.close(fig)
 
 
-def report(root):
-    data = load_root(root)
+def combine(joint_data, ref_data):
+    """Joint runs from `joint_data`; every other run (specialists, transfer) from `ref_data`."""
+    out = {}
+    for size, seeds in joint_data.items():
+        for seed, runs in seeds.items():
+            if "joint" in runs and seed in ref_data.get(size, {}):
+                merged = {k: v for k, v in ref_data[size][seed].items() if k != "joint"}
+                merged["joint"] = runs["joint"]
+                out.setdefault(size, {})[seed] = merged
+    return out
+
+
+def report(root, specialists_from=None):
+    ref = None
+    if specialists_from:
+        ref = summarize(load_root(specialists_from))
+        data = combine(load_root(root), load_root(specialists_from))
+    else:
+        data = load_root(root)
     if not data:
-        sys.exit(f"No <size>_seed<N> result folders in {root}")
+        sys.exit(f"No <size>_seed<N> result folders with results in {root}")
     s = summarize(data)
+    source = (f"Joint models from `{root}`; specialists and transfer runs from `{specialists_from}`. "
+              if specialists_from else f"Results folder: `{root}`. ")
     lines = ["# Stage A scaling report", "",
-             f"Results folder: `{root}`. Gap = joint / specialist CRPS, geometric mean over 8 systems "
+             source + "Gap = joint / specialist CRPS, geometric mean over 8 systems "
              f"(1.0 = equal, higher = joint worse). Phase 0 reference gap: {PHASE0_GAP} "
              "(different settings, not used for the verdicts).", ""]
 
@@ -173,12 +195,18 @@ def report(root):
     lines += [f"| {a} | **{b}** | {c} |" for a, b, c in verdicts(s)]
 
     lines += ["", "## Gap by model size", "",
-              "| Size | Seeds complete | Gap mean | sd | Per seed | Runs overfitting* |", "|---|---|---|---|---|---|"]
+              "| Size | Seeds complete | Gap mean | sd | Per seed | Runs overfitting* |"
+              + (" Gap with the reference run's joint |" if ref else ""),
+              "|---|---|---|---|---|---|" + ("---|" if ref else "")]
     for size, x in s.items():
         m, sd = mean_sd(x["gaps"].values()) if x["gaps"] else (float("nan"), float("nan"))
         per = ", ".join(f"s{k}: {g:.3f}" for k, g in sorted(x["gaps"].items()))
-        lines.append(f"| {size} | {len(x['gaps'])} of {len(x['n_runs'])} | {m:.3f} | {sd:.3f} | {per} | "
-                     f"{x['overfit'][0]} of {x['overfit'][1]} |")
+        row = (f"| {size} | {len(x['gaps'])} of {len(x['n_runs'])} | {m:.3f} | {sd:.3f} | {per} | "
+               f"{x['overfit'][0]} of {x['overfit'][1]} |")
+        if ref:
+            rg = ref.get(size, {}).get("gaps")
+            row += f" {mean_sd(rg.values())[0]:.3f} |" if rg else " - |"
+        lines.append(row)
     lines.append("\n*Validation NLL rose more than 0.05 after its best point; the best checkpoint was used anyway.")
 
     lines += ["", "## Gap per system (mean over seeds)", "", "| System | " + " | ".join(s) + " |",
@@ -187,7 +215,7 @@ def report(root):
         lines.append(f"| {sysname} | " + " | ".join(f"{x['per_system'].get(sysname, float('nan')):.2f}"
                                                    for x in s.values()) + " |")
 
-    lines += ["", "## Transfer (secondary)", "",
+    lines += ["", "## Transfer (secondary)" + (" - from the reference run, unchanged" if ref else ""), "",
               "| Size | Zero-shot beats baseline (seeds) | Pretraining advantage, from-scratch / fine-tuned error |",
               "|---|---|---|"]
     for size, x in s.items():
@@ -206,4 +234,10 @@ def report(root):
 
 
 if __name__ == "__main__":
-    report(sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/lcm-runs/stageA_n20k"))
+    import argparse
+    p = argparse.ArgumentParser(description="Stage A scaling report")
+    p.add_argument("root", nargs="?", default=os.path.expanduser("~/lcm-runs/stageA_n20k"))
+    p.add_argument("--specialists-from", default=None,
+                   help="take specialist and transfer runs from this results folder")
+    a = p.parse_args()
+    report(a.root, a.specialists_from)

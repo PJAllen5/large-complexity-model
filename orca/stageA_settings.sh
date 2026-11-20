@@ -5,10 +5,15 @@
 # few-shot 256 episodes x 2,000 steps, seeds 0-2.
 # The first overfitting check (2,000 episodes) stays in ~/lcm-runs/stageA.
 
+# Overridable (stageA_submit.sh --joint-long sets them; Slurm passes them on to every job):
+#   STAGEA_ROOT   results folder           STAGEA_STEPS  training steps
+#   STAGEA_DATA   simulated data folder (identical data can be shared between runs)
 STAGEA_ROOT="${STAGEA_ROOT:-$HOME/lcm-runs/stageA_n20k}"
+STAGEA_STEPS="${STAGEA_STEPS:-20000}"
+STAGEA_DATA="${STAGEA_DATA:-$STAGEA_ROOT/data}"
 STAGEA_SEEDS=(0 1 2)
-STAGEA_COMMON=(--precision bf16 --steps 20000 --batch 32 --lr 3e-4 --n-train 20000 --n-val 256
-               --few-shot-eps 256 --few-shot-steps 2000 --data-dir "$STAGEA_ROOT/data")
+STAGEA_COMMON=(--precision bf16 --steps "$STAGEA_STEPS" --batch 32 --lr 3e-4 --n-train 20000 --n-val 256
+               --few-shot-eps 256 --few-shot-steps 2000 --data-dir "$STAGEA_DATA")
 
 # size name -> width / layers / heads
 stageA_model_args() {

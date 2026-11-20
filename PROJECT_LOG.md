@@ -1115,3 +1115,53 @@ specialists.
   not capacity.
 - If Lorenz96 and n-body still lag, look at interference or the data
   format.
+
+### 2026-11-20: Longer joint training test set up (8× steps)
+
+**Decision (PJ):** run the proposed test. The joint model is retrained for
+**160,000 steps** (8 systems × 20k, so each system gets a specialist's
+worth of training) at all 3 sizes × 3 seeds: 9 runs. It's compared with the
+existing 20k-step Stage A specialists. Everything else is unchanged (bf16,
+batch 32, lr 3e-4 with the cosine schedule stretched over 160k steps,
+20,000 episodes, best-validation checkpoint).
+
+**What the answers would mean**
+- **The gap now shrinks with size** (the same pre-registered criteria
+  apply, judged against the 160k-step 1.08M joint model): the bottleneck
+  was the training budget, not capacity.
+- **Lorenz96 and n-body still lag:** look at interference between systems,
+  or the data format, next.
+- **The gap doesn't move:** undertraining wasn't the main cause.
+
+**Built**
+- **`orca/stageA_settings.sh`:** `STAGEA_STEPS` and `STAGEA_DATA` can be
+  overridden, like `STAGEA_ROOT`. Defaults are unchanged.
+- **`orca/stageA_submit.sh --joint-long`:**
+  - joint tasks only;
+  - 160k steps;
+  - results in `~/lcm-runs/stageA_joint160k`;
+  - **reuses** the Stage A data folder (identical data);
+  - a 3.5 h task time limit, against ~70–80 min expected for 8.5M on an
+    A30 and 28M on an L40S.
+- **Default GPU limits are now 5 A30 + 3 L40S** (were 6 + 2), matching the
+  manual rebalance that sped up Stage A.
+- **`orca/scaling_report.py --specialists-from <folder>`:** joint runs come
+  from one run; specialists and transfer runs from another. A "Gap with the
+  reference run's joint" column shows the 20k-step gaps side by side.
+
+**Tested**
+- 52/52 tests pass. New: settings overrides, and a combined report on
+  synthetic folders with known gaps.
+- **Simulated `--joint-long` submit** (stand-in Slurm, tiny models, 1
+  seed):
+  - only the 3 joint tasks were submitted, with the step override reaching
+    every job, the 5 + 3 limits, and the shared data folder;
+  - no failures;
+  - the resubmit found nothing to do;
+  - the combined report read both runs correctly.
+- The normal Stage A report is unchanged.
+
+**Not tested:** the real 160k-step runs (time, and whether 3.5 h is enough
+on busy nodes).
+
+**Estimated cost:** ~9 GPU-h; ~1.5–2 h of waiting.
