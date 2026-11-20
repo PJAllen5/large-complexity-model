@@ -347,3 +347,75 @@ PJ's first jobs.
   used. `orca/README.md` and the plan entry above now say `pjallen5`.
 - **Note:** ORCA's docs don't say where to find the username or how to fix
   this error. Support is via the ORCA Zulip chat.
+
+### 2026-11-19: Code review of the ORCA scripts, and fixes
+
+PR #3 (ORCA scripts) was merged before its code review finished. The review
+found 8 issues, all fixed in this change. PJ asked to fix them before
+continuing the post-merge questions. Two more bugs turned up while testing
+the fixes.
+
+**Fixed**
+1. **The pass check couldn't tell noise from real failure.** Requiring all
+   25 scores within 10% and identical headline answers was never checked
+   against normal run-to-run randomness. Epidemic joint vs specialist
+   (0.041 vs 0.040) could flip by chance and make a working setup FAIL.
+   **Decision:** three verdicts.
+   - `FAIL`: a main run (joint, specialist, never-seen-it) moved more than
+     10%, a headline answer flipped on a clear gap, runs are missing, or
+     the data differs.
+   - `PASS WITH WARNINGS`: only the few-shot runs (64 training episodes)
+     moved more than 10%, or a headline flipped on a near-tie (within 5%
+     in either run).
+   - `PASS`: otherwise.
+
+   The 10% and 5% thresholds are **judgement calls, not measured noise**.
+   Running the same experiment with a second seed would measure the real
+   spread; not done yet.
+2. **Simulated data wasn't confirmed identical.** `compare.py` now checks
+   the generated data against `results/data_checksums.json` (sha256 of the
+   laptop's array contents, committed). Regenerating all 16 datasets on the
+   laptop reproduced the checksums exactly.
+3. **ORCA's module system could crash the jobs under `set -euo pipefail`.**
+   `env.sh` now relaxes `-e`/`-u` while loading modules and restores them
+   afterwards. `module` errors are no longer hidden. Every script now stops
+   with `source orca/env.sh || exit 1`.
+4. **`orca/logs/` was missing on a fresh clone.** Slurm doesn't create it,
+   so jobs would fail with no log. The folder is now kept in git
+   (`.gitkeep`).
+5. **Unclear failure when a job was submitted from the wrong folder or
+   before setup.** Both job scripts now check first and print what to do.
+   The README troubleshooting rows were corrected: a job with no log means
+   check `sacct -j <jobid>`.
+6. **CPU thread oversubscription.** Threads are now capped at the job's
+   CPUs (`OMP_NUM_THREADS` etc.).
+7. **The import path depended on the current folder.** `env.sh` now uses
+   its own location, falls back to the current folder, and warns if that
+   isn't the repo.
+8. **The README's `lcm-*-*.out` log commands** could match no log or
+   several. They now use the job ID that `sbatch` prints. The runtime
+   estimate is labelled "not yet measured".
+
+**Bugs found while testing the fixes** (both fixed)
+- Saving shell settings with `$(set +o)` silently dropped `-e`. Bash resets
+  it inside `$(...)`, so a failed `module load` printed a warning and the
+  job **kept going**. Now saved from `$-` directly.
+- On the Mac's bash 3.2, the repo-root lookup returned `/`. It now falls
+  back to the current folder and warns.
+
+**Tested on the laptop** (stand-in `module` and `nvidia-smi`):
+- A strict script sourcing `env.sh` keeps `-e`/`-u` and stops on a later
+  error.
+- A failed module load stops the job and shows the module error.
+- Both guards print their messages.
+- `check_gpu.sbatch` reaches the GPU test.
+- `phase0.sbatch` (experiment stubbed) reports data identical and PASS.
+- `compare.py` scenarios: identical → PASS; epidemic near-tie flip →
+  PASS WITH WARNINGS; few-shot +30% → PASS WITH WARNINGS; joint lorenz96
+  +20% → FAIL; one changed number in the data → FAIL.
+- 18/18 tests pass.
+
+**Not tested:** anything on ORCA itself.
+
+**Process note:** a 424-line PR was merged before its review finished. Next
+time, wait for the review before merging.

@@ -1,0 +1,18 @@
+{
+ "boids_test.npz": "5b9c5672793c484fe16156c235e71e876dc8026cd3adff3388d055e1605a8b4f",
+ "boids_train.npz": "a182088d6b139638c1c81e9460bb47b14e1fcd3b97404c5fc87521356061dea9",
+ "epidemic_test.npz": "32fd39a2939ce0d8f0311b6a4aa3ba3b824c4fc43ddcffaaef1af7a1a10fed9b",
+ "epidemic_train.npz": "4d110a8e199a7bc64bb806a5988e27668bb48ebc91c437469885d0d43af22c05",
+ "gene_reg_test.npz": "0da238273671e3e4624cdcd2b01cd0e610fafa6a2a2a94867763dd901bf62a3d",
+ "gene_reg_train.npz": "967328c5fe2befcc07b7d534d1e88c7fd4d73d8c8fb91277473172a5ad690256",
+ "kuramoto_test.npz": "27a70245fe89441e1568c64a7cbe6d4a0fbd5274cdf6cad2681bb0a5ccb2b8f7",
+ "kuramoto_train.npz": "469581435dd150c96f4fc2057b386f8d98eecd7675d41d562ddfddeda6189ee4",
+ "lorenz96_test.npz": "29e503e1fef37528fc590ad6b82d4b5173aaa466e4397b6637cc98e2ebdc4615",
+ "lorenz96_train.npz": "f6a8558e327c61d8393c496aee0e506066013db5d60800cc06d0508dff042ff4",
+ "nbody_test.npz": "4c808d72a3d50976f888c2212340c9eb52790fe77209aef8de18f60085741544",
+ "nbody_train.npz": "5d3526c7af2ad2c3070b766e4e7345454804bedb9539ab99d08abded28c2e566",
+ "neurons_test.npz": "7583b937ed0afc1875c20f8a4954a21775dbbd4e165837fa2360cbfc7a4a10dc",
+ "neurons_train.npz": "21dc51f901abe82b1cba47b799352a0353bf2d0c3d471a73fc4c397d687bef97",
+ "predator_prey_test.npz": "a0fc8d2e3e2b97c7894f1c47101d70365b26c216624a57cfbca2157dd3d040b3",
+ "predator_prey_train.npz": "1381970594f918714b346090303824931eab382e18f9b46be3e4878ca4b1368d"
+}
