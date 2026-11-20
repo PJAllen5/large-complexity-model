@@ -245,6 +245,37 @@ need them say "NOT YET".
 
 ---
 
+## 11. Longer joint training (8x steps)
+
+Tests whether the joint model was simply undertrained: it retrains **only
+the joint model**, for 160,000 steps (8 systems x 20,000), at all 3 sizes and
+3 seeds (9 runs, ~1.5-2 h). It reuses the Stage A data, and compares
+against the Stage A specialists. Results go to `~/lcm-runs/stageA_joint160k/`.
+
+```bash
+git pull
+```
+
+```bash
+bash orca/stageA_submit.sh --joint-long
+```
+
+It should print `Unfinished tasks: 6 on A30, 3 on L40S (... 160000 steps)`.
+When `squeue -u $USER` is empty, check for failures, then run the report:
+
+```bash
+sacct -j <A30 array id>,<L40S array id> --format=JobID,State,Elapsed -X | grep -v COMPLETED
+```
+
+```bash
+.venv/bin/python orca/scaling_report.py ~/lcm-runs/stageA_joint160k --specialists-from ~/lcm-runs/stageA_n20k
+```
+
+**Paste the report to Claude.** Its "Gap with the reference run's joint"
+column shows the 20,000-step gaps side by side.
+
+---
+
 ## Troubleshooting
 
 | Problem | What to do |

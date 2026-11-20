@@ -46,3 +46,11 @@ def test_transfer_task_produces_three_runs():
     out = _bash("stageA_task_outputs transfer_epidemic").stdout.split()
     assert out == ["loo_epidemic", "finetune_epidemic", "scratch_epidemic"]
     assert _bash("stageA_task_outputs joint").stdout.split() == ["joint"]
+
+
+def test_settings_can_be_overridden_for_longer_joint_training():
+    env = "STAGEA_STEPS=160000 STAGEA_DATA=/shared/data"
+    out = _bash(f'{env} bash -c \'source orca/stageA_settings.sh; echo "${{STAGEA_COMMON[*]}}"\'').stdout
+    assert "--steps 160000" in out and "--data-dir /shared/data" in out
+    default = _bash('echo "${STAGEA_COMMON[*]}"').stdout
+    assert "--steps 20000" in default
