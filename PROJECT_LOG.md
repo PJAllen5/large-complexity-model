@@ -419,3 +419,33 @@ the fixes.
 
 **Process note:** a 424-line PR was merged before its review finished. Next
 time, wait for the review before merging.
+
+### 2026-11-19: ORCA environment confirmed, GPU check passed
+
+**Cluster facts from PJ's account** (these differ from the public docs in places):
+- Node names are `orcaga01–25`, not `orca01–25` as in the docs.
+- Time limits: `short` 4 h, `normal` **1 day**, `long` **7 days**. The
+  docs say 7 and 20 days. Plan scale-up jobs to fit within 1 day, or use
+  `long`.
+- The `osg` partition is in use by Open Science Grid jobs. When checked,
+  13 nodes were idle in `short`.
+- `sacctmgr` shows **no per-user limits** on record for `pjallen5`.
+- Modules: `python/3.12.12-gcc-13.4.0` and `python/3.14.0` (default);
+  `cuda/11.8.0` and `cuda/12.9.0` (default, loaded).
+- NVIDIA driver **610.57.04**, which supports CUDA up to 13.3.
+
+**Setup** (`bash orca/setup.sh`): torch **2.15.0+cu132** (CUDA 13.2
+build), numpy **2.5.5**. The laptop has torch 2.14.1 and numpy 2.5.4.
+- The concern that the CUDA 13.2 build would need a newer driver than
+  ORCA's CUDA 12.9 module didn't apply: the driver is 610.
+
+**GPU check** (job 271910, A30 on `orcaga07`, ran 30 s): **PASS**.
+- CUDA available.
+- GPU vs CPU matmul difference: 5.05e-05.
+- One Phase 0 training step: **0.0150 s**, against 0.065 s on the M3
+  (**4.3× faster**).
+- 18/18 tests passed.
+
+**Next:** the Phase 0 rerun (`sbatch orca/phase0.sbatch`). At 4.3× the
+step speed, it should take roughly 20–30 min, not 82 min. That's an
+estimate; evaluation time hasn't been measured on the A30.
