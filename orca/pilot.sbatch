@@ -25,7 +25,7 @@ fi
 source orca/env.sh || exit 1
 
 echo "== Job $SLURM_JOB_ID on $(hostname) at $(date)"
-git log --oneline -1
+git log --oneline -1 || echo "(git version unavailable)"
 start=$(date +%s)
 .venv/bin/python -u orca/pilot.py
 echo "== Pilot took $(( ($(date +%s) - start) / 60 )) min, done at $(date)"

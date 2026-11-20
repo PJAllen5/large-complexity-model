@@ -69,7 +69,11 @@ def build_datasets(data_dir, n_train, n_test, seed=0, n_val=0):
                     if len(f["x"]) == n:
                         continue
                 print(f"  rebuilding {path}: cached size differs from {n}")
-            np.savez_compressed(path, **generate(name, n, s))
+            # write to a temporary name, then rename: another job reading this
+            # folder never sees a half-written file
+            tmp = f"{path}.{os.getpid()}.tmp.npz"
+            np.savez_compressed(tmp, **generate(name, n, s))
+            os.replace(tmp, path)
 
 
 def load(data_dir, name, split, device, limit=None):
