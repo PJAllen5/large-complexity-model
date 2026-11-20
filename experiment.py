@@ -38,6 +38,14 @@ p.add_argument("--layers", type=int, default=4, help="transformer blocks")
 p.add_argument("--heads", type=int, default=4, help="attention heads")
 p.add_argument("--precision", choices=PRECISIONS, default="fp32",
                help="fp32 = exact (Phase 0); tf32 / bf16 = faster on NVIDIA GPUs")
+# Running on a cluster: one task per job, a shared data folder, a final report job.
+p.add_argument("--data-dir", default=None, help="simulated data folder (default: <out>/data); "
+               "share one between runs that use the same data")
+p.add_argument("--prepare-data-only", action="store_true", help="only simulate the data, then stop")
+p.add_argument("--only", default=None,
+               help="comma-separated tasks to run: joint, specialist_<system>, transfer_<system> "
+                    "(transfer = never-seen-it, then fine-tune and from-scratch on that held-out system)")
+p.add_argument("--report-only", action="store_true", help="write the report from finished runs, train nothing")
 for name, kind in [("steps", int), ("batch", int), ("lr", float), ("n_train", int), ("n_val", int),
                    ("few_shot_eps", int), ("few_shot_steps", int)]:
     p.add_argument(f"--{name.replace('_', '-')}", type=kind, default=None, dest=name)
@@ -55,7 +63,7 @@ MODEL = dict(d=args.d, layers=args.layers, heads=args.heads)
 
 dev = get_device()
 RUNS, CKPT = os.path.join(args.out, "runs"), os.path.join(args.out, "checkpoints")
-DATA = os.path.join(args.out, "data")
+DATA = args.data_dir or os.path.join(args.out, "data")
 for d in (RUNS, CKPT):
     os.makedirs(d, exist_ok=True)
 
@@ -69,12 +77,24 @@ if os.path.exists(cfg_path):
     if old_settings != json.loads(json.dumps(SETTINGS)):
         sys.exit(f"{args.out} holds runs made with different settings:\n  saved: {old_settings}\n"
                  f"  now:   {SETTINGS}\nUse a new --out folder.")
-json.dump(dict(SETTINGS, device=str(dev), torch=torch.__version__), open(cfg_path, "w"), indent=1)
+
+
+def save_atomic(save_fn, path):
+    """Write to a temporary name, then rename, so parallel jobs never see half-written files."""
+    tmp = f"{path}.{os.getpid()}.tmp"
+    save_fn(tmp)
+    os.replace(tmp, path)
+
+
+save_atomic(lambda f: json.dump(dict(SETTINGS, device=str(dev), torch=torch.__version__), open(f, "w"), indent=1),
+            cfg_path)
 
 print(f"device {dev} | seed {args.seed} | precision {args.precision} | model {MODEL} | config {CFG}")
 t0 = time.time()
 build_datasets(DATA, CFG["n_train"], CFG["n_test"], n_val=CFG["n_val"])
 print(f"data ready ({time.time() - t0:.0f}s)")
+if args.prepare_data_only:
+    sys.exit(0)
 train_sets = {n: load(DATA, n, "train", dev) for n in DOMAINS}
 test_sets = {n: load(DATA, n, "test", dev) for n in DOMAINS}
 val_sets = {n: load(DATA, n, "val", dev) for n in DOMAINS} if CFG["n_val"] else {}
@@ -107,29 +127,53 @@ def run(tag, domains_train, domains_eval, steps, data=None, init=None, seed=args
     if steps:
         data = data or {n: train_sets[n] for n in domains_train}
         val = {n: val_sets[n] for n in data} if val_sets else None
-        hist = train(model, data, steps, batch_size=CFG["batch"], seed=seed, log_every=max(steps // 5, 1),
+        hist = train(model, data, steps, batch_size=CFG["batch"], seed=seed, log_every=max(steps // 20, 1),
                      tag=tag, lr=1e-4 if init else CFG["lr"], val=val, precision=args.precision)
-    torch.save(model.state_dict(), ck)
+    save_atomic(lambda f: torch.save(model.state_dict(), f), ck)
     res = dict(tag=tag, trained_on=domains_train, steps=steps, seed=seed, loss=hist,
                eval=evaluate(model, domains_eval))
-    json.dump(res, open(path, "w"))
+    save_atomic(lambda f: json.dump(res, open(f, "w")), path)
     return res
 
 
-# 1. one model, every system
-run("joint", DOMAINS, DOMAINS, CFG["steps"])
+def run_task(task):
+    if task == "joint":                                   # one model, every system
+        run("joint", DOMAINS, DOMAINS, CFG["steps"])
+    elif task.startswith("specialist_"):                  # one system only, same budget
+        n = task[len("specialist_"):]
+        run(task, [n], [n], CFG["steps"])
+    elif task.startswith("transfer_"):                    # hide a system, then zero-shot and few-shot
+        n = task[len("transfer_"):]
+        others = [d for d in DOMAINS if d != n]
+        run(f"loo_{n}", others, [n], CFG["steps"])
+        few = {n: {k: v[: CFG["few_shot_eps"]] for k, v in train_sets[n].items()}}
+        run(f"finetune_{n}", [n], [n], CFG["few_shot_steps"], data=few, init=f"loo_{n}")
+        run(f"scratch_{n}", [n], [n], CFG["few_shot_steps"], data=few)
 
-# 2. one specialist per system, same training budget
-for n in DOMAINS:
-    run(f"specialist_{n}", [n], [n], CFG["steps"])
 
-# 3. transfer: hide a system, then test zero-shot and with a little data
-for n in HELD_OUT:
-    others = [d for d in DOMAINS if d != n]
-    run(f"loo_{n}", others, [n], CFG["steps"])
-    few = {n: {k: v[: CFG["few_shot_eps"]] for k, v in train_sets[n].items()}}
-    run(f"finetune_{n}", [n], [n], CFG["few_shot_steps"], data=few, init=f"loo_{n}")
-    run(f"scratch_{n}", [n], [n], CFG["few_shot_steps"], data=few)
+ALL_TASKS = ["joint"] + [f"specialist_{n}" for n in DOMAINS] + [f"transfer_{n}" for n in HELD_OUT]
+RUN_TAGS = (["joint"] + [f"specialist_{n}" for n in DOMAINS]
+            + [f"{k}_{n}" for n in HELD_OUT for k in ("loo", "finetune", "scratch")])
+
+if args.only:
+    tasks = args.only.split(",")
+    unknown = [t for t in tasks if t not in ALL_TASKS]
+    if unknown:
+        sys.exit(f"unknown task(s) {unknown}; choose from {ALL_TASKS}")
+elif args.report_only:
+    tasks = []
+    missing = [t for t in RUN_TAGS if not os.path.exists(os.path.join(RUNS, f"{t}.json"))]
+    if missing:
+        sys.exit(f"can't write the report: runs not finished yet: {missing}")
+else:
+    tasks = ALL_TASKS
+for task in tasks:
+    run_task(task)
+
+if args.only:
+    print(f"tasks {tasks} done ({(time.time() - t0) / 60:.1f} min); report skipped (use --report-only "
+          "once every task has finished)")
+    sys.exit(0)
 
 print(f"all runs done ({(time.time() - t0) / 60:.1f} min)")
 

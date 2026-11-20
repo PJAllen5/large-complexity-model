@@ -797,3 +797,115 @@ memory. That's what the pilot measures on ORCA.
 
 **Open, to be set from the pilot:** training steps, batch size and
 precision for the scale-up.
+
+### 2026-11-20: Scale-up pilot results, and settings decided
+
+**Runs:** `orca/pilot.sbatch` on an A30 (job 271955, 4 min) and an L40S
+(job 271956, 2 min). torch 2.15.0+cu132.
+
+**Accuracy (8.5M, 1,500 steps, identical start and batches)**
+
+| Precision | A30 | L40S |
+|---|---|---|
+| fp32 | −0.999 | −1.003 |
+| tf32 | −1.001 | −1.002 |
+| bf16 | −1.004 | −1.006 |
+
+Validation NLL; lower is better. Every precision is within ±0.005 of fp32,
+far below normal run-to-run variation. **bf16 ran without errors on real
+NVIDIA hardware** (first test). *Caveat:* this was a 1,500-step run, not
+a full-length one.
+
+**Speed** (seconds per step, batch 32)
+
+| Size | A30 fp32 | A30 bf16 | L40S fp32 | L40S bf16 |
+|---|---|---|---|---|
+| 1.08M | 0.017 | 0.009 | 0.008 | 0.009 |
+| 8.5M | 0.065 | 0.027 | 0.024 | 0.016 |
+| 28M | 0.171 | 0.058 | 0.063 | 0.026 |
+
+- bf16 is 2.4–2.9× faster than fp32 on the A30 for 8.5M and 28M.
+- The L40S is ~2× faster than the A30 for 28M in bf16.
+- **Memory:** at most 10.8 GB (28M, batch 128, fp32), well within the A30's
+  24 GB and the L40S's 48 GB.
+- **Projected cost:** Stage A comes to ~15–30 GPU-h, down from the earlier
+  50–150 GPU-h estimate.
+
+**Decisions (PJ accepted all the recommendations)**
+1. **bf16 for all Stage A runs, including a fresh 1.08M baseline**, so every
+   size is compared under identical settings. Phase 0's five fp32 seeds
+   remain as reference only.
+2. **Batch 32 and learning rate 3e-4, as in Phase 0.** Stage A changes only
+   model size.
+3. **20,000 training steps for every size**, including the 1.08M baseline,
+   with 3 seeds. *Why:* at Phase 0's 5,000 steps, the bigger models might
+   be undertrained and wrongly show that size doesn't help.
+4. **An overfitting check first.** At 20k steps, a specialist sees its 2,000
+   episodes ~320 times. The check trains 8.5M and 28M specialists on two
+   systems with validation on, before the full launch.
+5. **GPUs:** 28M on L40S, 1.08M and 8.5M on A30, at most 8 GPUs at once.
+6. **Few-shot:** 256 episodes, 2,000 steps. That's the same ~250 passes over
+   the data as Phase 0's 64 episodes × 500 steps.
+
+### 2026-11-20: Scale-up PR B: one Slurm job per model
+
+**Built**
+- **`experiment.py` cluster modes:**
+  - `--only <tasks>` runs single tasks: `joint`, `specialist_<system>`,
+    or `transfer_<system>`, which runs never-seen-it, then fine-tune, then
+    from-scratch in one job, since fine-tuning needs the never-seen-it
+    model first.
+  - `--data-dir` points at a shared data folder.
+  - `--prepare-data-only` simulates the data and stops.
+  - `--report-only` writes the report once every run exists, and refuses
+    otherwise.
+  - Training now logs 20 progress points instead of 5, so validation
+    curves are readable.
+- **Atomic writes:** data files, run results, checkpoints and
+  `config.json` are written to a temporary name, then renamed. *Why:*
+  parallel jobs share the data folder and must never read a half-written
+  file.
+- **Stage A scripts:**
+  - **`orca/stageA_settings.sh`** holds the single copy of the Stage A
+    settings (bf16, 20k steps, batch 32, lr 3e-4, 256 validation and 256
+    few-shot episodes, 2k few-shot steps, seeds 0–2) and the size → shape
+    map.
+  - **`orca/stageA_submit.sh [--check]`** submits:
+    - a CPU job for the shared data;
+    - an A30 array for 1.08M and 8.5M (at most 6 at once);
+    - an L40S array for 28M (at most 2 at once);
+    - on a full run, a report job that waits for every task to succeed.
+
+    It **leaves out tasks that already have results**, so rerunning it
+    after a failure only resubmits unfinished work. `--check` runs the 4
+    overfitting-check specialists in the same folders, so the full run
+    reuses them.
+  - **`orca/stageA_task.sbatch`**, **`stageA_prep.sbatch`** and
+    **`stageA_reports.sbatch`** are the job scripts. Plain scripts are used
+    instead of inline `--wrap` commands, which Slurm runs under `/bin/sh`.
+  - **`orca/val_curves.py`** shows validation curves and flags overfitting:
+    a rise of more than 0.05 NLL after the best point (a judgement call).
+
+**Tested on the laptop**
+- 42/42 tests pass. New in `tests/test_stageA_tools.py`: overfitting,
+  still-improving and small-wobble verdicts; runs without validation are
+  skipped; the size → shape map; transfer tasks produce 3 runs.
+- **Simulated end-to-end submit**, in a throwaway repo copy with a
+  stand-in `sbatch` that runs jobs immediately, tiny models, 6 steps and
+  1 seed:
+  - `--check`: 4 tasks, all succeeded.
+  - Full run: only the remaining **32 of 36** tasks were submitted (the
+    check's 4 were reused), all succeeded, and the report job wrote reports
+    for all 3 size folders (18 runs each, bf16 recorded in `config.json`).
+  - Resubmit: **0** unfinished tasks; only the reports were regenerated.
+- **Bugs found by the simulation (fixed):**
+  - The first attempt failed every task. The test copy had no git history,
+    so the job's `git log` line (which only prints the code version)
+    stopped it under `set -e`. That line is now non-fatal in the task and
+    pilot jobs.
+  - `val_curves.py` printed steps under 1,000 as "0k", and could repeat
+    the last point.
+
+**Not tested:** real Slurm (dependencies, array throttling, `--export`),
+real GPUs and real run times. The `--check` launch on ORCA is the first
+real test.
