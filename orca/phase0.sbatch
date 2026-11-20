@@ -18,7 +18,13 @@
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
-source orca/env.sh
+if [ ! -f experiment.py ] || [ ! -f orca/env.sh ]; then
+    echo "!! Submit this job from the repo root: cd ~/large-complexity-model, then sbatch again."; exit 1
+fi
+if [ ! -x .venv/bin/python ]; then
+    echo "!! No Python environment yet: run 'bash orca/setup.sh' first."; exit 1
+fi
+source orca/env.sh || exit 1
 
 echo "== Job $SLURM_JOB_ID on $(hostname) at $(date)"
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv

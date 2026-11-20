@@ -54,22 +54,24 @@ torch version and `built for CUDA 12.x` (or similar).
 sbatch orca/check_gpu.sbatch
 ```
 
-The job may wait in the queue before starting. Watch it with the first
-command below. `PD` means waiting and `R` means running; when it's gone from
-the list, it's finished. Then read its log with the second command.
+It replies `Submitted batch job <number>`. **Note the number**: it's the job ID,
+and the log file is named after it. The job may wait in the queue before
+starting. Watch it with the first command below. `PD` means waiting and `R`
+means running; when it's gone from the list, it's finished. Then read its log
+with the second command, using your job ID.
 
 ```bash
 squeue -u $USER
 ```
 
 ```bash
-cat orca/logs/lcm-check-*.out
+cat orca/logs/lcm-check-<jobid>.out
 ```
 
 You should see `PASS`, a "training step" speed, and the tests passing (e.g.
 `18 passed`). **Paste the whole log to Claude.**
 
-## 5. Phase 0 rerun (expected well under 1 h on an A30)
+## 5. Phase 0 rerun (estimated under 1 h on an A30, not yet measured)
 
 Only once step 4 passes:
 
@@ -77,13 +79,16 @@ Only once step 4 passes:
 sbatch orca/phase0.sbatch
 ```
 
-To follow along while it runs (Ctrl-C stops watching, not the job):
+Note the job ID again. Once `squeue` shows it as `R` (the log file only
+appears when the job starts), follow along with the command below. Ctrl-C
+stops watching, not the job.
 
 ```bash
-tail -f orca/logs/lcm-phase0-*.out
+tail -f orca/logs/lcm-phase0-<jobid>.out
 ```
 
-The log ends with a comparison table and `VERDICT: PASS` or `FAIL`.
+The log ends with a comparison table and one of three verdicts:
+`PASS`, `PASS WITH WARNINGS` (only noisy runs or near-ties moved) or `FAIL`.
 **Paste the end of the log to Claude**, from `== Experiment took` onward.
 
 To use the faster L40S instead of an A30:
@@ -113,4 +118,6 @@ Then ask Claude to log and commit them.
 | GPU check says `CUDA available: False` | The installed PyTorch is too new for ORCA's NVIDIA driver. Paste the log to Claude, which will give the exact reinstall command for the driver version shown by `nvidia-smi` |
 | Job sits in `PD` for a long time | `squeue -u $USER` shows the reason. `Resources` means the GPUs are busy, so wait or switch GPU type. A limit-related reason means you've hit your account's limits |
 | Job hit its time limit | Submit `orca/phase0.sbatch` again. Finished runs are cached and skipped |
-| `No such file or directory: orca/logs/...` | You submitted from the wrong folder. `cd ~/large-complexity-model` first |
+| Log says `Submit this job from the repo root` | `cd ~/large-complexity-model`, then submit again |
+| Log says `run 'bash orca/setup.sh' first` | Do step 3, then submit again |
+| Job finished but there's **no log file** | Slurm couldn't write the log, usually because the job was submitted from inside `orca/` or another folder. Run `sacct -j <jobid>` to see its state, then `cd ~/large-complexity-model` and submit again |

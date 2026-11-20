@@ -9,7 +9,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-source orca/env.sh            # loads ORCA's Python module
+source orca/env.sh || exit 1            # loads ORCA's Python module
 
 echo "== Python: $(python3 --version)"
 if [ -d .venv ]; then

@@ -8,5 +8,6 @@ results*/checkpoints/
 results_quick/
 *.log
 
-# ORCA job logs
-orca/logs/
+# ORCA job logs (folder kept in git so Slurm can write into it)
+orca/logs/*
+!orca/logs/.gitkeep
