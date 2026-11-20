@@ -647,3 +647,58 @@ reports:
 
 **Pending:** seeds 2–4 on ORCA, then `noise_summary.py` across all five
 (`orca/README.md` step 8).
+
+### 2026-11-19: Five-seed noise results (seeds 0–4, ORCA)
+
+**Runs:** seed 0 (`results_orca/`) and seeds 1–4 (`~/lcm-runs/phase0_seed*`
+on ORCA), each a full Phase 0 run on one A30, ~17 min. Seeds 2–4 ran in
+parallel. Summarised with `orca/noise_summary.py`. The seed 1–4 result
+files are still only on ORCA.
+
+**Spread across seeds** (cv = standard deviation / mean of CRPS)
+
+| Run type | Typical cv | Worst cv | Seeds for a 20% / 10% improvement* |
+|---|---|---|---|
+| Specialist | 1.7% | 10.0% (epidemic) | 3 / 9 |
+| Joint | 2.5% | 7.7% (neurons) | 2 / 5 |
+| Zero-shot | 8.3% | 9.5% (epidemic) | 2 / 8 |
+| Fine-tune, 64 episodes | 6.2% | 12.9% (epidemic) | 4 / 14 |
+| From scratch, 64 episodes | **32.8%** | **45.3%** (neurons) | **42 / 165** |
+
+\*Rough rule n ≥ 8·cv²/effect², using the worst cv.
+
+- Seed 1's large moves (joint neurons −18.7%, zero-shot epidemic +25.4%)
+  were **at the extreme**. Typical noise for joint and zero-shot runs is
+  2–9%, not 20–25%.
+- From-scratch training on 64 episodes is wildly unstable. Neurons ranged
+  0.211–0.705 across seeds.
+
+**Phase 0 findings across 5 seeds**
+- **Specialists beat the joint model on 7 of 8 systems in 5 of 5 seeds.**
+  Epidemic is a **tie**: mean 0.039 joint vs 0.037 specialist, joint ahead
+  in 2 of 5 seeds.
+- **Zero-shot beats the baseline on neurons in 5 of 5 seeds** (mean 0.639 vs
+  1.097). Kuramoto in 1 of 5 (mean 0.600 vs 0.540, so it loses on average).
+  Epidemic in 0 of 5.
+- **Pretraining helps few-shot learning in 14 of 15 seed–system pairs.** The
+  exception is neurons with seed 3: 0.99×, a tie.
+
+  | System | Mean advantage (from scratch / fine-tuned) | Per seed |
+  |---|---|---|
+  | neurons | 1.90× | 0.99–3.26× |
+  | epidemic | 1.77× | 1.14–2.47× |
+  | Kuramoto | 1.32× | 1.26–1.38× |
+
+  The seed-0 figure for epidemic (2.47×) was the highest of the five, so
+  the original "0.10 vs 0.25" claim was the luckiest case.
+
+**README updated** to these five-seed figures. The odds claims are still
+from a single run.
+
+**Decisions for the scale-up**
+- **At least 3 seeds per configuration** (5 to detect ~10% gains), including
+  the current 1.08M model as the baseline. These five runs already provide
+  that baseline.
+- **Few-shot comparisons need more than 64 episodes.** From-scratch runs at
+  that size would need ~40 seeds to show a 20% difference. Options: 256+
+  episodes, or comparing against the multi-seed average with a wide margin.

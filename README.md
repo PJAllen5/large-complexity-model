@@ -98,22 +98,26 @@ Subclass `Simulator` in [lcm/simulators.py](lcm/simulators.py) with `init`,
 ## Results
 
 Full numbers and charts are in [results/REPORT.md](results/REPORT.md). Every decision and test is recorded in [PROJECT_LOG.md](PROJECT_LOG.md).
-Headline from the first full run (82 min on an M3 MacBook):
+Headline from the first full run (82 min on an M3 MacBook), with the last
+three findings re-checked across 5 training seeds on ORCA (the odds figures
+are from a single run):
 
 - **The odds work.** Across all 8 systems, the joint model's odds are off by
   0.24 on average. An informed guess that knows each system's average odds is
   off by 0.40. The truth falls inside the model's 90% range 87% of the time.
 - **Experience transfers.** Given only 64 examples of a system it never saw
-  in training, the LCM beat a fresh model on all 3 held-out systems. A
-  second training seed confirmed the direction, but the size varies with
-  the seed: 1.1–2.5× lower error (see the seed-noise entry in
-  [PROJECT_LOG.md](PROJECT_LOG.md)).
+  in training, the LCM beat a fresh model on all 3 held-out systems.
+  Across 5 training seeds it won in 14 of 15 seed–system pairs (the other
+  was a tie), with on average **1.3–1.9× lower error** depending on the
+  system. Single runs ranged from 1.0× to 3.3×, so one run can't measure the
+  size of the effect.
 - **Mixing systems doesn't beat specialists yet.** With the same training
-  budget, single-system models were more accurate on 7 of 8 systems;
-  epidemics is a tie within seed noise. On ecology the joint model came
-  close. On gene networks it fell below the baseline.
-- **Zero-shot is weak.** With no examples at all, it beat the baseline only
-  on neurons.
+  budget, single-system models were more accurate on 7 of 8 systems in all
+  5 seeds. Epidemics is a tie: 0.039 vs 0.037 on average, with the joint
+  model ahead in 2 of 5 seeds. On ecology the joint model came close. On
+  gene networks it was no better than the baseline.
+- **Zero-shot is weak.** With no examples at all, it beat the baseline on
+  neurons in all 5 seeds, on Kuramoto in 1 of 5, and on epidemics never.
 
 At 1.08M parameters, this is the pattern you'd expect from a model that is
 too small. The joint model has to fit 8 systems into the capacity each
