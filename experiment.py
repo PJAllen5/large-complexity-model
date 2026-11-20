@@ -11,6 +11,7 @@ picks up where it stopped. The report is written to results/REPORT.md.
 
 import argparse
 import json
+import sys
 import os
 import time
 
@@ -20,7 +21,7 @@ from lcm.data import build_datasets, load
 from lcm.evaluate import forecast_metrics, outcome_likelihood
 from lcm.model import LCM
 from lcm.simulators import DOMAINS
-from lcm.train import train, get_device
+from lcm.train import PRECISIONS, train, get_device
 
 HELD_OUT = ["neurons", "epidemic", "kuramoto"]   # systems hidden from the transfer models
 
@@ -31,6 +32,15 @@ p.add_argument("--seed", type=int, default=0,
                help="training randomness (starting weights, batch order). The simulated data "
                     "and the true-odds replays stay fixed, so rerunning with another seed "
                     "measures how much results move by chance.")
+# Model size and training settings. Defaults reproduce Phase 0 exactly.
+p.add_argument("--d", type=int, default=128, help="model width (numbers per token)")
+p.add_argument("--layers", type=int, default=4, help="transformer blocks")
+p.add_argument("--heads", type=int, default=4, help="attention heads")
+p.add_argument("--precision", choices=PRECISIONS, default="fp32",
+               help="fp32 = exact (Phase 0); tf32 / bf16 = faster on NVIDIA GPUs")
+for name, kind in [("steps", int), ("batch", int), ("lr", float), ("n_train", int), ("n_val", int),
+                   ("few_shot_eps", int), ("few_shot_steps", int)]:
+    p.add_argument(f"--{name.replace('_', '-')}", type=kind, default=None, dest=name)
 args = p.parse_args()
 
 if args.quick:
@@ -38,6 +48,10 @@ if args.quick:
     args.out = args.out + "_quick"
 else:
     CFG = dict(n_train=2000, n_test=256, steps=5000, few_shot_eps=64, few_shot_steps=500, eval_limit=128, n_ctx=64)
+CFG.update(batch=32, lr=3e-4, n_val=0)
+CFG.update({k: getattr(args, k) for k in ["steps", "batch", "lr", "n_train", "n_val", "few_shot_eps", "few_shot_steps"]
+            if getattr(args, k) is not None})
+MODEL = dict(d=args.d, layers=args.layers, heads=args.heads)
 
 dev = get_device()
 RUNS, CKPT = os.path.join(args.out, "runs"), os.path.join(args.out, "checkpoints")
@@ -45,12 +59,25 @@ DATA = os.path.join(args.out, "data")
 for d in (RUNS, CKPT):
     os.makedirs(d, exist_ok=True)
 
-print(f"device {dev} | seed {args.seed} | config {CFG}")
+# Finished runs are cached by name, so never mix runs made with different settings
+# in one folder: record the settings and refuse to continue if they differ.
+SETTINGS = dict(cfg=CFG, model=MODEL, seed=args.seed, precision=args.precision)
+cfg_path = os.path.join(args.out, "config.json")
+if os.path.exists(cfg_path):
+    old = json.load(open(cfg_path))
+    old_settings = {k: old.get(k) for k in SETTINGS}
+    if old_settings != json.loads(json.dumps(SETTINGS)):
+        sys.exit(f"{args.out} holds runs made with different settings:\n  saved: {old_settings}\n"
+                 f"  now:   {SETTINGS}\nUse a new --out folder.")
+json.dump(dict(SETTINGS, device=str(dev), torch=torch.__version__), open(cfg_path, "w"), indent=1)
+
+print(f"device {dev} | seed {args.seed} | precision {args.precision} | model {MODEL} | config {CFG}")
 t0 = time.time()
-build_datasets(DATA, CFG["n_train"], CFG["n_test"])
+build_datasets(DATA, CFG["n_train"], CFG["n_test"], n_val=CFG["n_val"])
 print(f"data ready ({time.time() - t0:.0f}s)")
 train_sets = {n: load(DATA, n, "train", dev) for n in DOMAINS}
 test_sets = {n: load(DATA, n, "test", dev) for n in DOMAINS}
+val_sets = {n: load(DATA, n, "val", dev) for n in DOMAINS} if CFG["n_val"] else {}
 
 
 def evaluate(model, domains):
@@ -73,14 +100,15 @@ def run(tag, domains_train, domains_eval, steps, data=None, init=None, seed=args
         return json.load(open(path))
     print(f"[{tag}] training on {domains_train} for {steps} steps")
     torch.manual_seed(seed)
-    model = LCM().to(dev)
+    model = LCM(**MODEL).to(dev)
     if init:
         model.load_state_dict(torch.load(os.path.join(CKPT, f"{init}.pt"), map_location=dev))
     hist = []
     if steps:
         data = data or {n: train_sets[n] for n in domains_train}
-        hist = train(model, data, steps, batch_size=32, seed=seed, log_every=max(steps // 5, 1), tag=tag,
-                     lr=1e-4 if init else 3e-4)
+        val = {n: val_sets[n] for n in data} if val_sets else None
+        hist = train(model, data, steps, batch_size=CFG["batch"], seed=seed, log_every=max(steps // 5, 1),
+                     tag=tag, lr=1e-4 if init else CFG["lr"], val=val, precision=args.precision)
     torch.save(model.state_dict(), ck)
     res = dict(tag=tag, trained_on=domains_train, steps=steps, seed=seed, loss=hist,
                eval=evaluate(model, domains_eval))
@@ -106,4 +134,4 @@ for n in HELD_OUT:
 print(f"all runs done ({(time.time() - t0) / 60:.1f} min)")
 
 from report import write_report  # noqa: E402
-write_report(args.out, DOMAINS, HELD_OUT, CFG, test_sets, dev)
+write_report(args.out, DOMAINS, HELD_OUT, CFG, test_sets, dev, model_kwargs=MODEL)

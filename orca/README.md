@@ -165,6 +165,29 @@ few-shot advantage per seed, and a rough number of seeds the scale-up needs.
 
 ---
 
+## 9. Scale-up pilot (~20–40 min per GPU type)
+
+Measures speed, memory and the effect of faster maths for each planned model
+size, so the scale-up can be sized before ~100 runs are committed. Get the
+latest code, then submit once per GPU type (both can run at the same time):
+
+```bash
+git pull
+```
+
+```bash
+sbatch orca/pilot.sbatch
+```
+
+```bash
+sbatch --gres=gpu:l40s:1 orca/pilot.sbatch
+```
+
+Each log (`orca/logs/lcm-pilot-<jobid>.out`) has a speed table and an
+accuracy check. **Paste both logs to Claude.**
+
+---
+
 ## Troubleshooting
 
 | Problem | What to do |

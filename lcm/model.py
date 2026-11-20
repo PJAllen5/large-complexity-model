@@ -39,6 +39,8 @@ class Attn(nn.Module):
     def forward(self, x, mask=None, causal=False):
         B, L, D = x.shape
         q, k, v = self.qkv(self.ln(x)).view(B, L, 3, self.h, D // self.h).permute(2, 0, 3, 1, 4)
+        if mask is not None:
+            mask = mask.to(q.dtype)          # matches q under bf16 autocast; no-op in fp32
         a = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, is_causal=causal)
         return x + self.proj(a.transpose(1, 2).reshape(B, L, D))
 
@@ -103,7 +105,10 @@ class LCM(nn.Module):
             bias = bias.repeat_interleave(Tp, 0)                       # one copy per time patch
             h = blk(h, bias)
 
-        out = self.head(self.ln(h))
+        # the forecast head stays in full precision even when the transformer
+        # runs in bf16, so means and widths of the bell curves aren't rounded
+        with torch.autocast(device_type=h.device.type, enabled=False):
+            out = self.head(self.ln(h.float()))
         logits = out[..., : self.K].log_softmax(-1)
         mu, logsig = out[..., self.K:].view(B, NMAX, Tp, 2, self.K, PF).unbind(3)
         return logits, mu, logsig.clamp(-7, 3)
