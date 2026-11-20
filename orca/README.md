@@ -71,7 +71,7 @@ cat orca/logs/lcm-check-<jobid>.out
 You should see `PASS`, a "training step" speed, and the tests passing (e.g.
 `18 passed`). **Paste the whole log to Claude.**
 
-## 5. Phase 0 rerun (estimated under 1 h on an A30, not yet measured)
+## 5. Phase 0 rerun (~17 min on an A30, measured 2026-11-19)
 
 Only once step 4 passes:
 
@@ -110,6 +110,40 @@ Then ask Claude to log and commit them.
 
 ---
 
+## 7. Seed-noise run (measures run-to-run chance, ~17 min)
+
+Reruns Phase 0 with a different training seed (same data, same GPU type)
+and compares it with the first ORCA run. This is a **measurement, not a
+pass/fail test**: it shows how much scores move by chance, so later
+"improvements" can be judged against that.
+
+First make sure ORCA has the latest code:
+
+```bash
+cd ~/large-complexity-model && git pull
+```
+
+```bash
+sbatch orca/seed_noise.sbatch
+```
+
+The log is `orca/logs/lcm-seed-<jobid>.out`. It ends with a noise table:
+typical and largest score changes for the main runs and the few-shot runs,
+and any headline answers that flipped. **Paste the end of the log to
+Claude**, from `== Experiment took` onward.
+
+Results go to `~/lcm-runs/phase0_seed1/` on ORCA, **outside the repo**, so
+they never block a later `git pull`. To copy them to your laptop (run this
+on the laptop), use:
+
+```bash
+rsync -av --exclude data --exclude checkpoints pjallen5@login.orca.pdx.edu:lcm-runs/phase0_seed1/ ~/large-complexity-model/results_orca_seed1/
+```
+
+For another seed: `sbatch --export=ALL,SEED=2 orca/seed_noise.sbatch`.
+
+---
+
 ## Troubleshooting
 
 | Problem | What to do |
@@ -120,4 +154,5 @@ Then ask Claude to log and commit them.
 | Job hit its time limit | Submit `orca/phase0.sbatch` again. Finished runs are cached and skipped |
 | Log says `Submit this job from the repo root` | `cd ~/large-complexity-model`, then submit again |
 | Log says `run 'bash orca/setup.sh' first` | Do step 3, then submit again |
+| `git pull` says untracked files "would be overwritten" | ORCA has its own copy of results that were since committed (this happened with `results_orca/`). Move ORCA's copy aside (`mkdir -p ~/backup && mv <the listed files> ~/backup/`), `git pull`, then check they're identical with `diff -r` |
 | Job finished but there's **no log file** | Slurm couldn't write the log, usually because the job was submitted from inside `orca/` or another folder. Run `sacct -j <jobid>` to see its state, then `cd ~/large-complexity-model` and submit again |

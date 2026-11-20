@@ -2,6 +2,7 @@
 
     python orca/compare.py results results_orca
     python orca/compare.py --write-checksums results     # laptop only, once
+    python orca/compare.py --noise results_orca ~/lcm-runs/phase0_seed1   # seed noise, no verdict
 
 CRPS = continuous ranked probability score: how far the whole predicted range
 of futures is from what happened (lower is better).
@@ -102,7 +103,10 @@ def check_data(ref_dir, new_dir):
         if info["exact"] == r["exact"]:
             identical.append(f)
             continue
-        if info["structure"] != r["structure"] or stats.shape != ref_stats[f].shape:
+        if stats.shape != ref_stats[f].shape:
+            bad.append(f"{f} (different size: {len(stats)} vs {len(ref_stats[f])} episodes)")
+            continue
+        if info["structure"] != r["structure"]:
             bad.append(f"{f} (masks/graphs differ)")
             continue
         worst = float(np.abs(stats - ref_stats[f]).max() / r["spread"])
@@ -198,9 +202,60 @@ def main(ref_dir, new_dir):
     return verdict
 
 
+def noise(ref_dir, new_dir):
+    """Measure run-to-run noise between two runs of the same experiment that differ
+    only in training seed. No verdict: this is a measurement."""
+    ref, new = load(ref_dir), load(new_dir)
+    common = sorted(set(ref) & set(new))
+    missing = sorted(set(ref) - set(new))
+
+    laptop = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "results")
+    print(f"Data vs laptop reference: {check_data(laptop, new_dir)[1]}\n")
+
+    rows = []   # (group, tag, dom, rel crps diff, abs odds-error diff)
+    for tag in common:
+        group = "few-shot (64 episodes)" if tag.startswith(NOISY_PREFIXES) else "main runs"
+        for dom, m in ref[tag]["eval"].items():
+            if dom in new[tag]["eval"]:
+                n = new[tag]["eval"][dom]
+                rows.append((group, tag, dom, n["crps"] / m["crps"] - 1, n["prob_error"] - m["prob_error"]))
+
+    print(f"{'run':28s} {'system':14s} {'CRPS diff':>10s} {'odds-error diff':>16s}")
+    for g, tag, dom, rc, po in rows:
+        print(f"{tag:28s} {dom:14s} {rc:+10.1%} {po:+16.3f}")
+
+    print(f"\n{'group':24s} {'n':>3s} {'CRPS |diff| median':>19s} {'max':>7s} {'odds |diff| median':>19s} {'max':>7s}")
+    for g in ("main runs", "few-shot (64 episodes)"):
+        rc = np.array([abs(r[3]) for r in rows if r[0] == g])
+        po = np.array([abs(r[4]) for r in rows if r[0] == g])
+        if len(rc):
+            print(f"{g:24s} {len(rc):3d} {np.median(rc):19.1%} {rc.max():7.1%} {np.median(po):19.3f} {po.max():7.3f}")
+    top = sorted(rows, key=lambda r: -abs(r[3]))[:3]
+    print("Largest CRPS moves: " + ", ".join(f"{t} {d} {rc:+.1%}" for _, t, d, rc, _ in top))
+
+    if missing:
+        print(f"\nRuns missing from {new_dir}: {', '.join(missing)}")
+        return
+    print(f"\n{'headline question':28s} {'seed A':>8s} {'seed B':>8s}")
+    counts, flips = {}, []
+    for (q, item, a1, b1), (_, _, a2, b2) in zip(headline_items(ref), headline_items(new)):
+        c = counts.setdefault(q, [0, 0, 0])
+        c[0] += a1 < b1
+        c[1] += a2 < b2
+        c[2] += 1
+        if (a1 < b1) != (a2 < b2):
+            flips.append(f"'{q}' for {item}: {a1:.3f} vs {b1:.3f} -> {a2:.3f} vs {b2:.3f}")
+    for q, (ca, cb, tot) in counts.items():
+        print(f"{q:28s} {f'{ca} of {tot}':>8s} {f'{cb} of {tot}':>8s}")
+    print("Flipped answers: " + ("; ".join(flips) if flips else "none"))
+    print("\nOne pair of seeds gives a rough noise estimate, not a precise one.")
+
+
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--write-checksums":
         write_reference(sys.argv[2])
+    elif len(sys.argv) == 4 and sys.argv[1] == "--noise":
+        noise(sys.argv[2], sys.argv[3])
     elif len(sys.argv) == 3:
         main(sys.argv[1], sys.argv[2])
     else:
