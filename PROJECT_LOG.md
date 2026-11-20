@@ -230,3 +230,52 @@ a shared volume, then attach a GPU machine only for training.
   normalising over the whole episode failed the leakage test.
 - **Not covered:** forecast quality and `evaluate.py` metrics. Those come from
   `experiment.py` runs, which are too slow for CI.
+
+### 2026-11-19: ORCA access and specs
+
+- **What:** PJ has access to **ORCA** (Oregon Regional Computing Accelerator),
+  an NSF-funded GPU cluster hosted at Portland State. **Access is free.** Specs
+  below are from the public docs at <https://orca.pdx.edu>, read on this date.
+  Nothing has been run on ORCA yet.
+
+| Node type | Nodes | GPUs per node | GPU | GPU memory | CPU | RAM |
+|---|---|---|---|---|---|---|
+| orca01–06 | 6 | 4 | NVIDIA L40S (Ada) | 48 GB each, 192 GB per node | 64-core AMD EPYC 9534 | 576 GB |
+| orca07–25 | 19 | 4 | NVIDIA A30 (Ampere) | 24 GB each, 96 GB per node | 64-core AMD EPYC 9534 | 576 GB |
+
+- **GPU speed (FP32):**
+  - L40S: 91.6 TFLOPS, 864 GB/s
+  - A30: 10.3 TFLOPS, 933 GB/s
+  - For comparison, the M3 laptop is ~2.8 TFLOPS.
+  - The L40S has no hardware FP64, which doesn't matter here because LCM
+    trains in FP32.
+- **Scheduler:** Slurm.
+  - Partitions: `short` (4 h limit), `normal` (7 days), `long` (20 days).
+  - Jobs get **no GPU** unless they request one, for example
+    `--gres=gpu:l40s:1`.
+- **Storage:**
+  - `/home`: 100 GB, backed up nightly.
+  - `/scratch` workspaces: fast, not backed up, 30-day leases via
+    `ws_allocate`, at most 5 extensions.
+  - Per-node local SSD: 480 GB at `/tmp`, wiped when the job ends.
+- **Software:**
+  - Rocky Linux, Python modules (3.12, 3.14), `uv`, `venv`.
+  - Conda is discouraged.
+  - The CUDA page was not read.
+- **Login:** `ssh <user>@login.orca.pdx.edu`, SSH keys only. Don't compute
+  on the login node. Open OnDemand (web and Jupyter) is also available.
+- **Not in the public docs:**
+  - per-user GPU or job limits
+  - interconnect
+  - scratch quota and purge rules
+  - container (Apptainer) support
+  - CUDA versions
+
+  Check these on the cluster with `sinfo`,
+  `sacctmgr show assoc user=$USER` and `module avail cuda`.
+- **What it means for LCM (not yet decided):**
+  - One L40S (48 GB, ~30× the laptop's FP32 throughput) is enough for the
+    scale-up (~8.5M parameters) and for early Phase 1 models (28–50M).
+  - The 20 Phase 0-style runs are independent, so they could run in parallel
+    as a Slurm job array.
+  - Free access may replace the paid rental planned in the 2026-10-25 entry.
