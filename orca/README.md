@@ -274,6 +274,49 @@ sacct -j <A30 array id>,<L40S array id> --format=JobID,State,Elapsed -X | grep -
 **Paste the report to Claude.** Its "Gap with the reference run's joint"
 column shows the 20,000-step gaps side by side.
 
+## 12. Specialists at 160k steps (fair comparison for step 11)
+
+Step 11's joint models beat the 20k-step specialists, but those specialists
+were still improving. This trains **the 8 specialists for 160,000 steps** at
+1.08M and 8.5M, 3 seeds each (48 runs, ~40 GPU-h, ~6 h at 5 A30 + 3 L40S).
+8.5M runs on A30s (like its joint model); 1.08M on L40Ss. Same data as
+Stage A. Results go to `~/lcm-runs/stageA_spec160k/`.
+
+First, see how long the 8.5M joint runs took (same step count and size as
+an 8.5M specialist):
+
+```bash
+sacct -j 272979 --format=JobID,State,Elapsed -X
+```
+
+The default time limit per task is 3 h. If the 8.5M tasks (array tasks
+4-6) took well under 2 h, use a tighter limit so jobs start sooner, e.g.
+`TASK_TIME=02:00:00 bash orca/stageA_submit.sh --specialists-long`.
+Otherwise:
+
+```bash
+git pull
+```
+
+```bash
+bash orca/stageA_submit.sh --specialists-long
+```
+
+It should print `Unfinished tasks: 24 on A30, 24 on L40S (... 160000 steps)`.
+When `squeue -u $USER` is empty, check for failures, then run the report:
+
+```bash
+sacct -j <A30 array id>,<L40S array id> --format=JobID,State,Elapsed -X | grep -v COMPLETED
+```
+
+```bash
+.venv/bin/python orca/convergence_report.py
+```
+
+**Paste the report to Claude.** It gives the verdict per size (fixed before
+running), the per-system gaps, how much the specialists gained from 8x
+training, and whether any of them overfit.
+
 ---
 
 ## Troubleshooting

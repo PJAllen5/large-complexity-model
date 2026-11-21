@@ -1277,3 +1277,62 @@ ORCA and pasted the output.
 
 **Not checked:** PSU's written usage policy for ORCA (ask the admins or
 read their usage page).
+
+### 2026-11-20: 160k-step specialist test set up
+
+**Decision (PJ):** run the proposed test. The 8 specialists are retrained
+for **160,000 steps** at **1.08M and 8.5M** × seeds 0–2 (48 runs). They're
+compared with the existing 160k-step joint models, so both sides get the
+same training per system and 8× what Stage A gave them.
+- **28M is left out for now:** it tied with 8.5M on the gap, and would add
+  ~30 GPU-h. Add it if the 8.5M result is close to a threshold.
+- **Everything else is unchanged:** Stage A data (shared folder), bf16,
+  batch 32, lr 3e-4 with cosine decay over 160k steps, best-validation
+  checkpoint.
+
+**Pre-registered verdict** (gap = 160k joint / 160k specialist CRPS,
+geometric mean over 8 systems; seed noise ≈ 0.01), judged per size, with
+8.5M as the headline:
+- **Joint still wins:** gap ≤ 0.97.
+- **Tie:** 0.97 < gap ≤ 1.03. Sharing costs nothing, which still matters
+  for transfer.
+- **Specialists win:** gap > 1.03. The earlier win was mostly a
+  training-length effect; look at interference between systems next.
+
+**Built**
+- **`orca/stageA_submit.sh --specialists-long`:**
+  - specialist tasks only, 160k steps;
+  - results in `~/lcm-runs/stageA_spec160k`, reusing the Stage A data;
+  - 8.5M on A30s (same GPU type as its joint model), 1.08M on L40Ss;
+  - 3 h default task limit.
+- **`TASK_TIME` can be overridden** for any mode (e.g. `TASK_TIME=02:00:00`),
+  so the limit can be tightened once the 8.5M run time is known.
+- **Bug found and fixed while testing:** in the first version, the default
+  2 h limit was set before the mode, so the longer per-mode limits were
+  ignored. The joint-long run used the old script and wasn't affected.
+- **`orca/convergence_report.py`:**
+  - joint from `stageA_joint160k`, specialists from `stageA_spec160k`;
+  - the verdict per size, the per-system gaps, the gap against the 20k
+    specialists for reference;
+  - how much each specialist improved from 20k to 160k steps;
+  - overfitting / still-improving counts for the specialists;
+  - writes `CONVERGENCE.md` into the specialists folder.
+
+**Tested**
+- **65/65 tests pass**, with 13 new ones:
+  - report thresholds, gaps on synthetic folders, unfinished seeds, sizes
+    without specialists, curve counts;
+  - the submit mode with a stand-in `sbatch` (48 tasks split 24/24, the
+    right sizes and GPU types, skipping finished runs, per-mode and
+    overridden time limits).
+- **Tiny end-to-end run on the laptop:** a real joint run, 8 long and 8
+  short specialists (tiny model, 80 and 10 steps), then the report. It
+  completed and the report rendered.
+- **The report on real files** (20k specialists standing in for the 160k
+  ones) reproduces the known 1.08M gap of 0.958.
+
+**Not tested:** the real ORCA runs, or the actual time per 8.5M specialist
+task on an A30.
+
+**Estimated cost:** ~40 GPU-h (24 × ~1.25 h on A30, 24 × ~0.4 h on L40S),
+about 6 h of waiting. Free.
