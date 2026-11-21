@@ -1336,3 +1336,89 @@ task on an A30.
 
 **Estimated cost:** ~40 GPU-h (24 × ~1.25 h on A30, 24 × ~0.4 h on L40S),
 about 6 h of waiting. Free.
+
+### 2026-11-21: 160k-step specialist result: the specialists win (correction)
+
+**Correction to the 2026-11-20 entry "Longer joint training result: the
+joint model now beats the specialists":**
+- **That headline was wrong.** The joint model beat specialists that were
+  themselves undertrained (20k steps, all still improving).
+- **With both sides trained for 160k steps, the specialists win at both
+  sizes tested.**
+- The caveat in that entry was the deciding factor. The 2026-11-20 entry
+  is left as written.
+
+**Run:**
+- 48 specialist runs, 160k steps each: 8 systems × 1.08M and 8.5M × seeds
+  0–2. All 48 COMPLETED.
+- **8.5M:** A30 array 273515, 5 at a time, **1 h 14–15 min** per run.
+- **1.08M:** planned for L40Ss (array 273516), but **all six L40S nodes
+  were out of service** (orcaga02, 03, 05 and 06 down after failed
+  reboots; 01 and 04 drained). The array was cancelled before any task
+  started and resubmitted on A30s (array 273522, 3 at a time, 1 h limit):
+  **26.7–27.1 min** per run. This matches where the 1.08M joint models
+  ran.
+- Time limit: `TASK_TIME=02:00:00`, set from the measured 1 h 17 min of
+  the 8.5M joint runs.
+- **~40.6 GPU-h in total**, about 6.5 h of waiting. Free.
+- Report:
+  [results_stageA_spec160k/CONVERGENCE.md](results_stageA_spec160k/CONVERGENCE.md).
+  Reproduced on the laptop from the copied results with identical gaps.
+
+**Headline:** gap = 160k joint / 160k specialist CRPS (geometric mean over
+8 systems)
+
+| Size | Gap vs 20k specialists (2026-11-20) | Gap vs 160k specialists (sd) | Pre-registered verdict |
+|---|---|---|---|
+| 1.08M | 0.958 | **1.289** (0.021) | Specialists win |
+| 8.5M | 0.917 | **1.079** (0.005) | Specialists win |
+
+**Per system at 8.5M**
+- Near ties: predator-prey 1.01, gene networks 1.01, neurons 1.02, boids
+  1.03, Lorenz96 1.03.
+- Losses: Kuramoto 1.10, epidemic 1.11, **n-body 1.36**.
+- At 1.08M every system loses, and Lorenz96 is worst (2.58).
+
+**What the specialists gained from 8× training** (160k / 20k specialist
+CRPS)
+- n-body 0.49 at 8.5M; epidemic 0.63 / 0.75; Lorenz96 0.50 at 1.08M.
+- The rest 0.78–1.00.
+
+**Specialist validation curves**
+- **1.08M:** 15 of 24 still improving at the end, 3 overfitting. n-body
+  peaked at 64k–96k steps.
+- **8.5M:** **18 of 24 overfitting**. The best checkpoints were at 40k–128k
+  steps for every system except epidemic (160k). With 20,000 episodes of
+  one system, an 8.5M specialist has learned all it can by about 50k–100k
+  steps.
+- **By contrast, all 9 joint models were still improving at 160k** (see the
+  2026-11-20 entry).
+
+**What it means**
+- **Sharing one model across 8 systems costs accuracy on those systems at
+  these sizes:** 29% at 1.08M, 8% at 8.5M. It hasn't been shown to help
+  forecasting on systems the model was trained on.
+- **The cost shrinks fast with size: 1.289 → 1.079.** That's a drop of
+  0.21 with seed sd ≤ 0.02. Under fair training, this clears Stage A's
+  pre-registered "gap shrinks" bar (≥ 0.10), which the undertrained Stage A
+  runs missed. That bar was set for the Stage A comparison, so this is an
+  observation, not a pre-registered pass.
+- **The two sides are in different states at 8.5M:**
+  - specialists are data-limited: they overfit, and more steps won't help;
+  - the joint model is still improving.
+
+  More training or a bigger joint model could narrow the gap further.
+- **Undertraining hypothesis, revised:** the joint models *were*
+  undertrained at 20k steps, but so were the specialists. Training both
+  longer helped the specialists more at these sizes.
+- **The case for one model now rests on two things:**
+  - the size trend (does the gap reach ≤ 1.03 at 28M?);
+  - transfer to new systems, where pretraining lowers few-shot error
+    1.7–1.9× on epidemics and 1.2–2.4× on neurons (smaller at bigger
+    sizes), and barely on Kuramoto (Stage A, 20k-step runs).
+
+**Proposed next test (not yet decided):** 160k-step specialists at 28M
+(24 runs), compared with the existing 28M joint models (160k).
+- This tests whether the gap keeps falling (1.29 → 1.08 → ?).
+- **It must run on A30s while the L40S nodes are down.** The 28M run time
+  on an A30 is unknown and may exceed 2 h, so time one run first.

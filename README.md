@@ -157,6 +157,21 @@ ORCA, with success criteria fixed before running. Report:
   equal training per system, not at convergence. The next test is
   specialists trained 8× longer too.
 
+**Correction (2026-11-21): with specialists also trained for 160k steps,
+the specialists win.** Report:
+[results_stageA_spec160k/CONVERGENCE.md](results_stageA_spec160k/CONVERGENCE.md).
+
+- **The gap is 1.29 at 1.08M and 1.08 at 8.5M.** The joint model's win
+  above came from comparing it against undertrained specialists.
+- **The cost of sharing shrinks fast with size** (a 0.21 drop, against
+  seed noise of about 0.01). At 8.5M it's close to a tie on 5 of 8
+  systems, and most of the loss is n-body (1.36).
+- **At 8.5M the specialists overfit (18 of 24) while the joint models are
+  still improving.** The specialists are limited by data; the joint model
+  isn't yet.
+- **Open question:** does the gap close at 28M? The case for one model now
+  rests on that size trend and on transfer to new systems.
+
 ## What's next (Phase 1)
 
 - **Real data**, one field at a time:
