@@ -9,6 +9,12 @@
 #     bash orca/stageA_submit.sh --specialists-long  # the 8 specialists at 160k steps, 1.08M and 8.5M, all seeds,
 #                                              # same data; compare with the 160k-step joint models
 #
+# Overrides (environment variables), e.g. 28M specialists on A30s while the L40S nodes are down:
+#     STAGEA_A30_SIZES=28M STAGEA_L40S_SIZES= A30_MAX=8 TASK_TIME=03:30:00 bash orca/stageA_submit.sh --specialists-long
+#   STAGEA_A30_SIZES / STAGEA_L40S_SIZES  model sizes per GPU type (space-separated; empty = none)
+#   A30_MAX / L40S_MAX                    tasks at once per GPU type
+#   TASK_TIME                             time limit per task
+#
 # What it submits:
 #   1. a CPU job that simulates the shared data once (skipped if it exists)
 #   2. a GPU job array on A30s  (1.08M and 8.5M models), at most 5 at once
@@ -20,7 +26,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 MODE="${1:-full}"
-A30_MAX=5; L40S_MAX=3                                # at most 8 GPUs at once
+A30_MAX="${A30_MAX:-5}"; L40S_MAX="${L40S_MAX:-3}"   # at most 8 GPUs at once by default
 USER_TASK_TIME="${TASK_TIME:-}"                      # an exported TASK_TIME overrides the per-mode limit
 TASK_TIME=02:00:00
 case "$MODE" in
@@ -63,6 +69,13 @@ else
            transfer_neurons transfer_epidemic transfer_kuramoto)
 fi
 
+# Size overrides: set-but-empty means "no sizes on this GPU type".
+if [ -n "${STAGEA_A30_SIZES+x}" ]; then read -r -a A30_SIZES <<< "$STAGEA_A30_SIZES"; fi
+if [ -n "${STAGEA_L40S_SIZES+x}" ]; then read -r -a L40S_SIZES <<< "$STAGEA_L40S_SIZES"; fi
+for size in ${A30_SIZES[@]+"${A30_SIZES[@]}"} ${L40S_SIZES[@]+"${L40S_SIZES[@]}"}; do
+    stageA_model_args "$size" > /dev/null || exit 1
+done
+
 write_tasks() {   # $1 = task file, remaining args = sizes; prints the number of unfinished tasks
     local file="$1"; shift
     : > "$file"
@@ -80,8 +93,8 @@ write_tasks() {   # $1 = task file, remaining args = sizes; prints the number of
     wc -l < "$file" | tr -d ' '
 }
 
-n_a30=$(write_tasks "$STAGEA_ROOT/tasks_${MODE}_a30.txt" "${A30_SIZES[@]}")
-n_l40s=$(write_tasks "$STAGEA_ROOT/tasks_${MODE}_l40s.txt" "${L40S_SIZES[@]}")
+n_a30=$(write_tasks "$STAGEA_ROOT/tasks_${MODE}_a30.txt" ${A30_SIZES[@]+"${A30_SIZES[@]}"})
+n_l40s=$(write_tasks "$STAGEA_ROOT/tasks_${MODE}_l40s.txt" ${L40S_SIZES[@]+"${L40S_SIZES[@]}"})
 echo "Unfinished tasks: $n_a30 on A30, $n_l40s on L40S (results in $STAGEA_ROOT, $STAGEA_STEPS steps)"
 if [ "$n_a30" = 0 ] && [ "$n_l40s" = 0 ] && [ "$MODE" != full ]; then
     echo "Nothing to run."; exit 0

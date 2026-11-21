@@ -97,3 +97,20 @@ def test_task_time_per_mode_and_override(tmp_path):
     (tmp_path / "b").mkdir()
     _, log = _fake_submit(tmp_path / "b", "--specialists-long", TASK_TIME="02:15:00")
     assert "--time=02:15:00" in log and "--time=03:00:00" not in log
+
+
+def test_28m_specialists_on_a30_only(tmp_path):
+    env = dict(STAGEA_A30_SIZES="28M", STAGEA_L40S_SIZES="", A30_MAX="8", TASK_TIME="03:30:00")
+    r, log = _fake_submit(tmp_path, "--specialists-long", **env)
+    assert r.returncode == 0, r.stderr
+    root = tmp_path / "lcm-runs" / "stageA_spec160k"
+    a30 = (root / "tasks_specialists-long_a30.txt").read_text().splitlines()
+    assert len(a30) == 24 and all(t.startswith("28M ") for t in a30)
+    assert "24 on A30, 0 on L40S" in r.stdout
+    assert "--array=1-24%8 --gres=gpu:a30:1 --time=03:30:00" in log
+    assert "gpu:l40s" not in log                            # no L40S array submitted
+
+
+def test_unknown_size_override_is_refused(tmp_path):
+    r, log = _fake_submit(tmp_path, "--specialists-long", STAGEA_A30_SIZES="28m")
+    assert r.returncode != 0 and "unknown size 28m" in r.stderr and log == ""
