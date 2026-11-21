@@ -1422,3 +1422,42 @@ CRPS)
 - This tests whether the gap keeps falling (1.29 → 1.08 → ?).
 - **It must run on A30s while the L40S nodes are down.** The 28M run time
   on an A30 is unknown and may exceed 2 h, so time one run first.
+
+### 2026-11-21: 28M specialist test set up (on A30s)
+
+**Decision (PJ):** run the proposed test. 8 specialists × **28M** × seeds
+0–2 (24 runs), 160k steps each. They're compared with the existing 160k-step
+28M joint models.
+- **Question:** does the gap keep falling with size (1.289 at 1.08M →
+  1.079 at 8.5M → ?).
+- **Verdict:** the same pre-registered thresholds as the 1.08M / 8.5M
+  runs: joint still wins ≤ 0.97, tie up to 1.03, specialists win above.
+- **The size trend is read alongside it:** a 28M gap near 1.03 or below
+  would mean size alone closes the gap at this data scale.
+
+**Hardware:** all six L40S nodes were out of service on 2026-11-21, so this
+runs on **A30s, 8 at a time**. That's the whole 8-GPU cap, since no L40S
+can be used.
+- From the pilot (0.058 s/step for 28M bf16 on an A30) and the 8.5M runs
+  matching their pilot estimate, each run should take **~2.6–2.7 h**.
+- Time limit 3.5 h (the `short` partition's maximum is 4 h).
+- ~64 GPU-h, about 8 h of waiting.
+- **Caveat:** the 28M joint models ran on L40Ss. The pilot found bf16
+  accuracy differs by ≤ 0.005 NLL between the two GPU types, far below
+  seed noise.
+
+**Built:** `orca/stageA_submit.sh` takes environment overrides:
+- `STAGEA_A30_SIZES` / `STAGEA_L40S_SIZES` (sizes per GPU type; empty =
+  none);
+- `A30_MAX` / `L40S_MAX` (tasks at once);
+- an unknown size is refused before anything is submitted.
+- Defaults are unchanged. Results go to the same
+  `~/lcm-runs/stageA_spec160k` folder, so `orca/convergence_report.py`
+  picks up 28M with no changes.
+
+**Tested:**
+- 67/67 tests pass. New: 28M on A30 only (24 tasks, 8 at a time, a 3.5 h
+  limit, no L40S array), and refusing an unknown size.
+- The existing submit tests confirm the defaults are unchanged.
+
+**Not tested:** the real 28M run time on an A30.

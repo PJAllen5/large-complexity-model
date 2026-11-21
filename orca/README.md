@@ -317,6 +317,51 @@ sacct -j <A30 array id>,<L40S array id> --format=JobID,State,Elapsed -X | grep -
 running), the per-system gaps, how much the specialists gained from 8x
 training, and whether any of them overfit.
 
+## 13. 28M specialists at 160k steps (on A30s)
+
+Does the gap keep falling with size (1.29 at 1.08M, 1.08 at 8.5M)? This
+trains the 8 specialists at **28M** for 160k steps, 3 seeds (24 runs), and
+compares them with the existing 28M joint models. The L40S nodes were down
+on 2026-11-21, so this runs on **A30s**, 8 at a time (still within the
+8-GPU cap). Each run should take ~2.6-2.7 h (pilot: 0.058 s/step), so the
+time limit is 3.5 h (`short` allows 4 h). Expect ~64 GPU-h and ~8 h.
+
+First check the L40S nodes. If they're back (`idle` or `mix`), tell Claude:
+28M is ~2x faster there.
+
+```bash
+sinfo -N -n orcaga[01-06] -o "%N %T"
+```
+
+Otherwise:
+
+```bash
+git pull
+```
+
+```bash
+STAGEA_A30_SIZES=28M STAGEA_L40S_SIZES= A30_MAX=8 TASK_TIME=03:30:00 bash orca/stageA_submit.sh --specialists-long
+```
+
+It should print `Unfinished tasks: 24 on A30, 0 on L40S (... 160000 steps)`
+and submit one A30 array. After the first round (~3 h), check the run time
+of the first tasks:
+
+```bash
+sacct -j <A30 array id> --format=JobID,State,Elapsed -X | head -12
+```
+
+When `squeue -u $USER` is empty, check for failures and run the same
+report as step 12 (it now includes 28M):
+
+```bash
+sacct -j <A30 array id> --format=JobID,State,Elapsed -X | grep -v COMPLETED
+```
+
+```bash
+.venv/bin/python orca/convergence_report.py
+```
+
 ---
 
 ## Troubleshooting
