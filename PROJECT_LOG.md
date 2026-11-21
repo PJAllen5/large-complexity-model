@@ -1461,3 +1461,85 @@ can be used.
 - The existing submit tests confirm the defaults are unchanged.
 
 **Not tested:** the real 28M run time on an A30.
+
+### 2026-11-21: 28M specialist result, and a correction about "equal training"
+
+**Run:** 24 specialist runs, 28M, 160k steps, seeds 0–2.
+- A30 array 274158, 8 at a time; the L40S nodes were still down.
+- All 24 COMPLETED in **2 h 40 min – 2 h 42 min** each (0.060 s/step,
+  against the pilot's 0.058).
+- ~64.5 GPU-h, ~8.2 h of waiting. Free.
+- Report:
+  [results_stageA_spec160k/CONVERGENCE.md](results_stageA_spec160k/CONVERGENCE.md).
+  The 28M row was reproduced exactly on the laptop.
+- The 28M task list is saved as `tasks_specialists-long-28M_a30.txt`. The
+  submit script had overwritten the 8.5M / 1.08M lists on ORCA, and the
+  committed copies were restored.
+
+**Headline:** gap = 160k joint / 160k specialist CRPS
+
+| Size | Gap (sd) | Pre-registered verdict |
+|---|---|---|
+| 1.08M | 1.289 (0.021) | Specialists win |
+| 8.5M | 1.079 (0.005) | Specialists win |
+| 28M | **1.042** (0.017) | **Specialists win, narrowly** |
+
+- **28M is just above the 1.03 tie line.** Seed 0 (1.028) is in the tie
+  range on its own, and the mean is about one standard error above the
+  line.
+- **The size benefit flattens:** 1.08M → 8.5M cut the gap by 0.21;
+  8.5M → 28M (3.3× more parameters) cut it by 0.04.
+
+**Per system at 28M**
+- Ties or wins on **6 of 8**:
+  - **Lorenz96 0.95** (the joint model beats its specialist);
+  - Kuramoto 0.99, gene networks 0.99, boids 1.00, predator-prey 1.01,
+    neurons 1.01;
+  - geometric mean of these six ≈ 0.99.
+- **The whole remaining gap is n-body (1.31) and epidemic (1.11)**, which
+  didn't improve with size (n-body 1.36 → 1.31, epidemic 1.11 → 1.11 from
+  8.5M to 28M).
+
+**Specialist validation curves at 28M**
+- 20 of 24 overfit; their best checkpoints were at 32k–88k steps.
+- **Exceptions:**
+  - **epidemic peaked at the final step (160k) at all three sizes:** those
+    specialists are still improving, not at a ceiling;
+  - one n-body run peaked at 160k (the others at 88k).
+- **n-body and epidemic are the two systems that gained most from 8×
+  training** (CRPS × 0.49–0.78), and they need the most training steps to
+  learn.
+
+**Correction to the 2026-11-20 entry "160k-step specialist test set up"**
+(and to the framing in the 2026-11-21 specialist entry):
+- **What that entry said:** 160k-step specialists give "both sides the
+  same training per system". **That was wrong.**
+- **Training per system:** the joint model's 160k steps are shared by 8
+  systems (~20k steps per system), while each specialist gets 160k steps
+  on its own system.
+- **Compute:** the 8 specialists together use **8× the compute** of one
+  joint model.
+- **Equal compute per system** is the 2026-11-20 comparison (joint 160k
+  vs specialists 20k). There the **joint model wins** (gap 0.958 / 0.917 /
+  0.919).
+- **The 160k-specialist comparison** is joint at equal steps per *model*
+  against specialists trained to (nearly) their best. There the specialists
+  win: by 29% at 1.08M, 8% at 8.5M, **4% at 28M with 1/8 of the compute**.
+  The joint models were all still improving.
+- The earlier entries are left as written.
+
+**What it means**
+- **One shared 28M model is within 4% of 8 fully trained specialists** on
+  their own systems, using 1/8 of their compute. It matches or beats them
+  on 6 of 8 systems.
+- **The leading explanation for the rest** is that n-body and epidemic get
+  too little training inside the joint model (~20k steps each, against the
+  88k–160k their specialists needed), rather than too little capacity.
+  This is a hypothesis, not tested yet.
+
+**Proposed next test (not yet decided):** train the joint model **4× longer
+(640k steps, ~80k per system)** at 8.5M and 28M, 3 seeds each.
+- If n-body and epidemic catch up, the gap should close.
+- **8.5M:** ~5 h per run on an A30. **28M:** ~11 h, which needs the
+  `normal` partition (1-day limit).
+- ~47 GPU-h in total.

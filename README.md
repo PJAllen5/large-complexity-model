@@ -172,6 +172,25 @@ the specialists win.** Report:
 - **Open question:** does the gap close at 28M? The case for one model now
   rests on that size trend and on transfer to new systems.
 
+**28M, and what "equal training" means (2026-11-21).**
+
+- **At 28M the gap is 1.04:** the specialists still win, narrowly (the tie
+  line is 1.03). The size benefit flattens: −0.21 from 1.08M to 8.5M, then
+  −0.04 to 28M.
+- **The joint model ties or wins on 6 of 8 systems** and beats the Lorenz96
+  specialist (0.95). The whole remaining gap is **n-body (1.31) and
+  epidemic (1.11)**, the systems whose specialists needed the most
+  training.
+- **Correction:** the 160k-step specialists did *not* get the same
+  training per system as the joint model.
+  - The joint model's 160k steps are shared by 8 systems (~20k each), so
+    the 8 specialists used 8× the compute.
+  - **At equal compute, the joint model wins** (0.92).
+  - **Against specialists trained to their best, it's within 4% at 28M**,
+    with 1/8 of the compute, and still improving.
+- **Next test (proposed):** train the joint model 4× longer, to see whether
+  n-body and epidemic catch up.
+
 ## What's next (Phase 1)
 
 - **Real data**, one field at a time:
