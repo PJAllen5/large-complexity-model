@@ -55,7 +55,7 @@ measured by building each model in code.
 | Batch size (episodes per step) | 32 | set from the pilot (32 or 128) | ~256 |
 | Learning rate | 3e-4 (1e-4 for fine-tuning) | 3e-4 | tuned |
 | Precision | fp32 | fp32, tf32 or bf16, set from the pilot's accuracy check | tbd |
-| Hardware | MacBook Air M3; rerun on ORCA A30 | ORCA A30 / L40S, at most ~8 GPUs at once | ORCA or rented A100/H100 |
+| Hardware | MacBook Air M3; rerun on ORCA A30 | ORCA A30 / L40S, at most ~8 GPUs at once (self-imposed; Slurm sets no per-user limit, see 2026-11-20 limits entry) | ORCA or rented A100/H100 |
 | Time / cost | 82 min laptop, 17 min A30 / free | est. 50–150 GPU-h / free | 100s–1000s GPU-h |
 
 ---
@@ -1229,3 +1229,51 @@ specialists are the 20k-step Stage A ones).
 **Proposed next test (not yet decided):** train specialists for 160k steps
 (8 systems × 3 sizes × 3 seeds = 72 runs). This tests whether the joint
 model's win holds when the specialists also get 8× more training.
+
+### 2026-11-20: ORCA compute limits checked
+
+**Why:** before planning bigger jobs (such as 72 specialist runs at 160k
+steps), find out what ORCA actually allows. PJ ran the commands below on
+ORCA and pasted the output.
+
+**Results**
+- **QOS** (`sacctmgr show qos`): only `normal`, with **no caps**. That
+  means no limits on GPUs per user, running or queued jobs, or job length.
+  Together with the earlier `sacctmgr show assoc` (no account limits),
+  Slurm sets **no usage limits** for `pjallen5`.
+- **Partitions** (`scontrol show partition`): no partition QOS, unlimited
+  nodes. The partitions share nodes, so the GPU counts overlap:
+
+| Partition | Time limit | GPUs | A30 | L40S |
+|---|---|---|---|---|
+| short | 4 h | 76 | 52 | 24 |
+| normal | 1 day | 84 | 64 | 20 |
+| long | 7 days | 36 | 36 | **0** |
+| osg | 3 days | 24 | 24 | 0 (Open Science Grid) |
+
+- **Priority** (`scontrol show config`): multifactor, but **every weight is
+  0** (age, fair-share, job size, partition, QOS).
+  - All jobs have equal priority: the queue runs in submission order, with
+    backfill.
+  - `sshare` shows no fair-share row for PJ, so past usage doesn't lower
+    priority.
+- **Disk** (`quota -s`): home quota **90 GB soft / 100 GB hard**. 15.6 GB
+  used (data, venv, runs).
+  - The shared `/home` filesystem is 84% full (1.6 TB free).
+  - No `/scratch` workspaces allocated (`ws_list` empty).
+
+**What it means**
+- **Jobs over 1 day can't use L40S GPUs** (`long` has none). A 28M run
+  longer than 24 h on an L40S would need checkpoint/resume chunks.
+- **Tight `--time` limits start sooner via backfill.** The 3.5 h joint-long
+  limit (for ~80 min tasks) could be about 2 h next time.
+- **The real limits are the written usage policy and courtesy.** Keep the
+  self-imposed cap of ~8 GPUs at once (5 A30 + 3 L40S) until PSU's policy
+  is checked.
+- **Disk:** ~74 GB of headroom before the soft quota. Delete or move old
+  `data/` and `checkpoints/` folders under `~/lcm-runs` before large new
+  datasets. For big data, use a `/scratch` workspace (`ws_allocate`;
+  30-day leases, not backed up).
+
+**Not checked:** PSU's written usage policy for ORCA (ask the admins or
+read their usage page).
