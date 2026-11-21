@@ -6,6 +6,8 @@
 #     bash orca/stageA_submit.sh               # full Stage A
 #     bash orca/stageA_submit.sh --joint-long  # joint model only, 8x the steps (160k), all sizes and seeds,
 #                                              # reusing the Stage A data; compare with the 20k-step specialists
+#     bash orca/stageA_submit.sh --specialists-long  # the 8 specialists at 160k steps, 1.08M and 8.5M, all seeds,
+#                                              # same data; compare with the 160k-step joint models
 #
 # What it submits:
 #   1. a CPU job that simulates the shared data once (skipped if it exists)
@@ -18,7 +20,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 MODE="${1:-full}"
-A30_MAX=5; L40S_MAX=3; TASK_TIME=02:00:00          # at most 8 GPUs at once
+A30_MAX=5; L40S_MAX=3                                # at most 8 GPUs at once
+USER_TASK_TIME="${TASK_TIME:-}"                      # an exported TASK_TIME overrides the per-mode limit
+TASK_TIME=02:00:00
 case "$MODE" in
     --check) MODE=check ;;
     --joint-long)
@@ -27,10 +31,18 @@ case "$MODE" in
         export STAGEA_ROOT="${STAGEA_ROOT:-$HOME/lcm-runs/stageA_joint160k}"
         export STAGEA_STEPS="${STAGEA_STEPS:-160000}"
         export STAGEA_DATA="${STAGEA_DATA:-$HOME/lcm-runs/stageA_n20k/data}"
-        TASK_TIME=03:30:00 ;;                       # ~70-80 min expected; short partition allows 4 h
+        TASK_TIME=03:30:00 ;;                 # ~70-80 min expected; short partition allows 4 h
+    --specialists-long)
+        MODE=specialists-long
+        # The fair comparison for the 160k-step joint models: specialists with the same 160k steps.
+        export STAGEA_ROOT="${STAGEA_ROOT:-$HOME/lcm-runs/stageA_spec160k}"
+        export STAGEA_STEPS="${STAGEA_STEPS:-160000}"
+        export STAGEA_DATA="${STAGEA_DATA:-$HOME/lcm-runs/stageA_n20k/data}"
+        TASK_TIME=03:00:00 ;;                 # set from the joint-long run times (sacct) before submitting
     full) ;;
-    *) echo "usage: bash orca/stageA_submit.sh [--check | --joint-long]"; exit 1 ;;
+    *) echo "usage: bash orca/stageA_submit.sh [--check | --joint-long | --specialists-long]"; exit 1 ;;
 esac
+TASK_TIME="${USER_TASK_TIME:-$TASK_TIME}"
 source orca/stageA_settings.sh
 mkdir -p "$STAGEA_ROOT" orca/logs
 
@@ -38,6 +50,12 @@ if [ "$MODE" = check ]; then
     A30_SIZES=(8.5M); L40S_SIZES=(28M); SEEDS=(0); TASKS=(specialist_epidemic specialist_lorenz96)
 elif [ "$MODE" = joint-long ]; then
     A30_SIZES=(1.08M 8.5M); L40S_SIZES=(28M); SEEDS=("${STAGEA_SEEDS[@]}"); TASKS=(joint)
+elif [ "$MODE" = specialists-long ]; then
+    # 28M left out for now (it tied with 8.5M). 8.5M stays on A30s like its joint model;
+    # the quick 1.08M runs use the L40Ss.
+    A30_SIZES=(8.5M); L40S_SIZES=(1.08M); SEEDS=("${STAGEA_SEEDS[@]}")
+    TASKS=(specialist_predator_prey specialist_boids specialist_kuramoto specialist_lorenz96
+           specialist_nbody specialist_gene_reg specialist_neurons specialist_epidemic)
 else
     A30_SIZES=(1.08M 8.5M); L40S_SIZES=(28M); SEEDS=("${STAGEA_SEEDS[@]}")
     TASKS=(joint specialist_predator_prey specialist_boids specialist_kuramoto specialist_lorenz96

@@ -54,3 +54,46 @@ def test_settings_can_be_overridden_for_longer_joint_training():
     assert "--steps 160000" in out and "--data-dir /shared/data" in out
     default = _bash('echo "${STAGEA_COMMON[*]}"').stdout
     assert "--steps 20000" in default
+
+
+def _fake_submit(tmp_path, mode, **env):
+    """Run stageA_submit.sh with a stand-in sbatch that records its arguments."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    (bin_dir / "sbatch").write_text('#!/bin/bash\necho "$@" >> "$SBATCH_LOG"\necho 1000\n')
+    (bin_dir / "sbatch").chmod(0o755)
+    e = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", HOME=str(tmp_path),
+             SBATCH_LOG=str(tmp_path / "sbatch.log"), **env)
+    r = subprocess.run(["bash", "orca/stageA_submit.sh", mode], cwd=ROOT, env=e, capture_output=True, text=True)
+    log = (tmp_path / "sbatch.log").read_text() if (tmp_path / "sbatch.log").exists() else ""
+    return r, log
+
+
+def test_specialists_long_submits_48_specialist_tasks(tmp_path):
+    r, log = _fake_submit(tmp_path, "--specialists-long")
+    assert r.returncode == 0, r.stderr
+    root = tmp_path / "lcm-runs" / "stageA_spec160k"
+    a30 = (root / "tasks_specialists-long_a30.txt").read_text().splitlines()
+    l40s = (root / "tasks_specialists-long_l40s.txt").read_text().splitlines()
+    assert len(a30) == 24 and all(t.startswith("8.5M ") for t in a30)
+    assert len(l40s) == 24 and all(t.startswith("1.08M ") for t in l40s)
+    assert all(t.split()[2].startswith("specialist_") for t in a30 + l40s)
+    assert "160000 steps" in r.stdout and "--time=03:00:00" in log
+    assert "stageA_reports" not in log                      # no Stage A report job in this mode
+
+
+def test_specialists_long_skips_finished_runs(tmp_path):
+    done = tmp_path / "lcm-runs" / "stageA_spec160k" / "8.5M_seed0" / "runs"
+    done.mkdir(parents=True)
+    (done / "specialist_boids.json").write_text("{}")
+    r, _ = _fake_submit(tmp_path, "--specialists-long", TASK_TIME="02:00:00")
+    assert "23 on A30, 24 on L40S" in r.stdout
+
+
+def test_task_time_per_mode_and_override(tmp_path):
+    (tmp_path / "a").mkdir()
+    _, log = _fake_submit(tmp_path / "a", "--joint-long")
+    assert "--time=03:30:00" in log
+    (tmp_path / "b").mkdir()
+    _, log = _fake_submit(tmp_path / "b", "--specialists-long", TASK_TIME="02:15:00")
+    assert "--time=02:15:00" in log and "--time=03:00:00" not in log
