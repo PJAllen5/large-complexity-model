@@ -8,6 +8,8 @@
 #                                              # reusing the Stage A data; compare with the 20k-step specialists
 #     bash orca/stageA_submit.sh --specialists-long  # the 8 specialists at 160k steps, 1.08M and 8.5M, all seeds,
 #                                              # same data; compare with the 160k-step joint models
+#     bash orca/stageA_submit.sh --joint-640k      # joint, 8.5M, 640k steps (4x), normal partition
+#     bash orca/stageA_submit.sh --joint-weighted  # joint, 8.5M, 160k steps, n-body and epidemic sampled 2.5x
 #
 # Overrides (environment variables), e.g. 28M specialists on A30s while the L40S nodes are down:
 #     STAGEA_A30_SIZES=28M STAGEA_L40S_SIZES= A30_MAX=8 TASK_TIME=03:30:00 bash orca/stageA_submit.sh --specialists-long
@@ -29,6 +31,7 @@ MODE="${1:-full}"
 A30_MAX="${A30_MAX:-5}"; L40S_MAX="${L40S_MAX:-3}"   # at most 8 GPUs at once by default
 USER_TASK_TIME="${TASK_TIME:-}"                      # an exported TASK_TIME overrides the per-mode limit
 TASK_TIME=02:00:00
+PARTITION="${PARTITION:-short}"                      # short: 4 h limit; normal: 1 day
 case "$MODE" in
     --check) MODE=check ;;
     --joint-long)
@@ -45,8 +48,24 @@ case "$MODE" in
         export STAGEA_STEPS="${STAGEA_STEPS:-160000}"
         export STAGEA_DATA="${STAGEA_DATA:-$HOME/lcm-runs/stageA_n20k/data}"
         TASK_TIME=03:00:00 ;;                 # set from the joint-long run times (sacct) before submitting
+    --joint-640k)
+        MODE=joint-640k
+        # Does more training per system (~80k steps each) close the n-body and epidemic gaps?
+        export STAGEA_ROOT="${STAGEA_ROOT:-$HOME/lcm-runs/stageA_joint640k}"
+        export STAGEA_STEPS="${STAGEA_STEPS:-640000}"
+        export STAGEA_DATA="${STAGEA_DATA:-$HOME/lcm-runs/stageA_n20k/data}"
+        PARTITION=normal; TASK_TIME=07:00:00 ;;    # ~5.1 h expected on an A30; too long for short
+    --joint-weighted)
+        MODE=joint-weighted
+        # Same 160k steps, but n-body and epidemic get 2.5x the share of each batch.
+        export STAGEA_ROOT="${STAGEA_ROOT:-$HOME/lcm-runs/stageA_jointw160k}"
+        export STAGEA_STEPS="${STAGEA_STEPS:-160000}"
+        export STAGEA_DATA="${STAGEA_DATA:-$HOME/lcm-runs/stageA_n20k/data}"
+        export STAGEA_WEIGHTS="${STAGEA_WEIGHTS:-nbody=2.5,epidemic=2.5}"
+        TASK_TIME=02:00:00 ;;                       # ~1.3 h expected on an A30
     full) ;;
-    *) echo "usage: bash orca/stageA_submit.sh [--check | --joint-long | --specialists-long]"; exit 1 ;;
+    *) echo "usage: bash orca/stageA_submit.sh [--check | --joint-long | --specialists-long | --joint-640k | --joint-weighted]"
+       exit 1 ;;
 esac
 TASK_TIME="${USER_TASK_TIME:-$TASK_TIME}"
 source orca/stageA_settings.sh
@@ -56,6 +75,8 @@ if [ "$MODE" = check ]; then
     A30_SIZES=(8.5M); L40S_SIZES=(28M); SEEDS=(0); TASKS=(specialist_epidemic specialist_lorenz96)
 elif [ "$MODE" = joint-long ]; then
     A30_SIZES=(1.08M 8.5M); L40S_SIZES=(28M); SEEDS=("${STAGEA_SEEDS[@]}"); TASKS=(joint)
+elif [ "$MODE" = joint-640k ] || [ "$MODE" = joint-weighted ]; then
+    A30_SIZES=(8.5M); L40S_SIZES=(); SEEDS=("${STAGEA_SEEDS[@]}"); TASKS=(joint)
 elif [ "$MODE" = specialists-long ]; then
     # 28M left out for now (it tied with 8.5M). 8.5M stays on A30s like its joint model;
     # the quick 1.08M runs use the L40Ss.
@@ -95,7 +116,8 @@ write_tasks() {   # $1 = task file, remaining args = sizes; prints the number of
 
 n_a30=$(write_tasks "$STAGEA_ROOT/tasks_${MODE}_a30.txt" ${A30_SIZES[@]+"${A30_SIZES[@]}"})
 n_l40s=$(write_tasks "$STAGEA_ROOT/tasks_${MODE}_l40s.txt" ${L40S_SIZES[@]+"${L40S_SIZES[@]}"})
-echo "Unfinished tasks: $n_a30 on A30, $n_l40s on L40S (results in $STAGEA_ROOT, $STAGEA_STEPS steps)"
+echo "Unfinished tasks: $n_a30 on A30, $n_l40s on L40S (results in $STAGEA_ROOT, $STAGEA_STEPS steps," \
+     "partition $PARTITION${STAGEA_WEIGHTS:+, weights $STAGEA_WEIGHTS})"
 if [ "$n_a30" = 0 ] && [ "$n_l40s" = 0 ] && [ "$MODE" != full ]; then
     echo "Nothing to run."; exit 0
 fi
@@ -105,12 +127,12 @@ echo "Data job: $prep"
 
 deps=""
 if [ "$n_a30" -gt 0 ]; then
-    a30=$(sbatch --parsable --dependency="afterok:$prep" --array="1-${n_a30}%${A30_MAX}" --gres=gpu:a30:1 --time="$TASK_TIME" \
+    a30=$(sbatch --parsable --dependency="afterok:$prep" --array="1-${n_a30}%${A30_MAX}" --gres=gpu:a30:1 --partition="$PARTITION" --time="$TASK_TIME" \
           --export=ALL,TASKFILE="$STAGEA_ROOT/tasks_${MODE}_a30.txt" orca/stageA_task.sbatch)
     echo "A30 array: $a30 ($n_a30 tasks)"; deps="$deps:$a30"
 fi
 if [ "$n_l40s" -gt 0 ]; then
-    l40s=$(sbatch --parsable --dependency="afterok:$prep" --array="1-${n_l40s}%${L40S_MAX}" --gres=gpu:l40s:1 --time="$TASK_TIME" \
+    l40s=$(sbatch --parsable --dependency="afterok:$prep" --array="1-${n_l40s}%${L40S_MAX}" --gres=gpu:l40s:1 --partition="$PARTITION" --time="$TASK_TIME" \
            --export=ALL,TASKFILE="$STAGEA_ROOT/tasks_${MODE}_l40s.txt" orca/stageA_task.sbatch)
     echo "L40S array: $l40s ($n_l40s tasks)"; deps="$deps:$l40s"
 fi

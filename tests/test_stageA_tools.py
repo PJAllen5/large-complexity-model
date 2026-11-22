@@ -107,10 +107,31 @@ def test_28m_specialists_on_a30_only(tmp_path):
     a30 = (root / "tasks_specialists-long_a30.txt").read_text().splitlines()
     assert len(a30) == 24 and all(t.startswith("28M ") for t in a30)
     assert "24 on A30, 0 on L40S" in r.stdout
-    assert "--array=1-24%8 --gres=gpu:a30:1 --time=03:30:00" in log
+    assert "--array=1-24%8 --gres=gpu:a30:1 --partition=short --time=03:30:00" in log
     assert "gpu:l40s" not in log                            # no L40S array submitted
 
 
 def test_unknown_size_override_is_refused(tmp_path):
     r, log = _fake_submit(tmp_path, "--specialists-long", STAGEA_A30_SIZES="28m")
     assert r.returncode != 0 and "unknown size 28m" in r.stderr and log == ""
+
+
+def test_joint_640k_uses_normal_partition(tmp_path):
+    r, log = _fake_submit(tmp_path, "--joint-640k")
+    assert r.returncode == 0, r.stderr
+    tasks = (tmp_path / "lcm-runs" / "stageA_joint640k" / "tasks_joint-640k_a30.txt").read_text().splitlines()
+    assert tasks == ["8.5M 0 joint", "8.5M 1 joint", "8.5M 2 joint"]
+    assert "640000 steps, partition normal" in r.stdout
+    assert "--partition=normal --time=07:00:00" in log and "gpu:l40s" not in log
+
+
+def test_joint_weighted_passes_weights_to_every_job(tmp_path):
+    r, log = _fake_submit(tmp_path, "--joint-weighted")
+    assert r.returncode == 0, r.stderr
+    assert "160000 steps, partition short, weights nbody=2.5,epidemic=2.5" in r.stdout
+    assert "--partition=short --time=02:00:00" in log
+    # the task and prep jobs source the settings with the exported STAGEA_WEIGHTS
+    out = _bash('STAGEA_WEIGHTS=nbody=2.5,epidemic=2.5 bash -c \'source orca/stageA_settings.sh; '
+                'echo "${STAGEA_COMMON[*]}"\'').stdout
+    assert "--system-weights nbody=2.5,epidemic=2.5" in out
+    assert "--system-weights" not in _bash('echo "${STAGEA_COMMON[*]}"').stdout

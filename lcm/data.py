@@ -102,14 +102,25 @@ def normalize(x, ent_mask, feat_mask, t_ctx=T_CTX):
 
 
 class MixedSampler:
-    """Draws training batches with every domain equally represented."""
+    """Draws training batches with every domain equally represented, or in proportion
+    to `weights` ({name: w}; missing names count as 1). Without weights the random
+    draws are exactly as before weights existed, so earlier runs stay reproducible."""
 
-    def __init__(self, datasets):
+    def __init__(self, datasets, weights=None):
         self.datasets = datasets
+        unknown = set(weights or {}) - set(datasets)
+        if unknown:
+            raise ValueError(f"weights for unknown domains: {sorted(unknown)}")
+        if weights and any(w <= 0 for w in weights.values()):
+            raise ValueError("weights must be positive")
+        self.probs = (torch.tensor([float(weights.get(n, 1.0)) for n in datasets]) if weights else None)
 
     def __call__(self, batch_size, gen):
         names = list(self.datasets)
-        which = torch.randint(len(names), (batch_size,), generator=gen)
+        if self.probs is None:
+            which = torch.randint(len(names), (batch_size,), generator=gen)
+        else:
+            which = torch.multinomial(self.probs, batch_size, replacement=True, generator=gen)
         parts = []
         for i, name in enumerate(names):
             k = int((which == i).sum())

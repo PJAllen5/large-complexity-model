@@ -8,12 +8,15 @@
 # Overridable (stageA_submit.sh --joint-long sets them; Slurm passes them on to every job):
 #   STAGEA_ROOT   results folder           STAGEA_STEPS  training steps
 #   STAGEA_DATA   simulated data folder (identical data can be shared between runs)
+#   STAGEA_WEIGHTS  joint-model sampling weights (see below)
 STAGEA_ROOT="${STAGEA_ROOT:-$HOME/lcm-runs/stageA_n20k}"
 STAGEA_STEPS="${STAGEA_STEPS:-20000}"
 STAGEA_DATA="${STAGEA_DATA:-$STAGEA_ROOT/data}"
 STAGEA_SEEDS=(0 1 2)
 STAGEA_COMMON=(--precision bf16 --steps "$STAGEA_STEPS" --batch 32 --lr 3e-4 --n-train 20000 --n-val 256
                --few-shot-eps 256 --few-shot-steps 2000 --data-dir "$STAGEA_DATA")
+# STAGEA_WEIGHTS (optional, e.g. nbody=2.5,epidemic=2.5): joint model samples those systems more often
+if [ -n "${STAGEA_WEIGHTS:-}" ]; then STAGEA_COMMON+=(--system-weights "$STAGEA_WEIGHTS"); fi
 
 # size name -> width / layers / heads
 stageA_model_args() {
