@@ -1,5 +1,7 @@
 """Checks for the scale-up options: model sizes, precision, validation and data splits."""
 
+import math
+
 import numpy as np
 import pytest
 import torch
@@ -132,3 +134,37 @@ def test_val_log_records_every_domain():
                    val=_sets(n=2, seed=50), val_log=log)
     assert [s for s, _ in log] == [2, 4] and set(log[0][1]) == {"boids", "epidemic"}
     assert hist[0][2] == pytest.approx(sum(log[0][1].values()) / 2)   # the average is still what keep_best uses
+
+
+def test_eval_at_checks_listed_steps_and_step_zero(monkeypatch):
+    """Dense early checks; step 0 (the starting weights) can be the one kept."""
+    import lcm.train as T
+    scores = iter([0.1, 0.5, 0.6, 0.7, 0.8])               # step 0 is best
+
+    monkeypatch.setattr(T, "validation_by_domain", lambda model, val, precision="fp32": {"x": next(scores)})
+    torch.manual_seed(0)
+    m = LCM(d=32, layers=1, heads=2)
+    start = torch.cat([p.detach().flatten().clone() for p in m.parameters()])
+    hist = T.train(m, _sets(), 8, batch_size=4, seed=0, val={"x": None}, eval_at=[0, 1, 2, 4])
+    assert [h[0] for h in hist] == [0, 1, 2, 4, 8]          # the last step is always checked
+    assert torch.equal(torch.cat([p.detach().flatten() for p in m.parameters()]), start)
+    assert math.isnan(hist[0][1]) and not math.isnan(hist[2][1])   # step 0 has no training loss yet
+
+
+def test_default_schedule_is_unchanged():
+    import lcm.train as T
+    torch.manual_seed(0)
+    hist = T.train(LCM(d=32, layers=1, heads=2), _sets(), 7, batch_size=4, seed=0, log_every=3)
+    assert [h[0] for h in hist] == [3, 6, 7]
+
+
+def test_per_window_metrics_average_to_the_totals():
+    from lcm.evaluate import forecast_metrics
+    from lcm.data import T_TOTAL
+    torch.manual_seed(0)
+    d = {k: v for k, v in _sets(n=6)["boids"].items()}
+    assert d["x"].shape[1] == T_TOTAL
+    m = forecast_metrics(LCM(d=32, layers=1, heads=2).eval(), d, n_samples=8, batch=4, limit=6, per_window=True)
+    assert len(m["window_crps"]) == 6 and len(m["window_cover90"]) == 6
+    assert sum(m["window_crps"]) / 6 == pytest.approx(m["crps"], rel=1e-5)   # equal-sized windows
+    assert sum(m["window_cover90"]) / 6 == pytest.approx(m["cover90"], rel=1e-5)

@@ -15,6 +15,12 @@ Regimes: `small` uses only the dataset's small-data training range, `full` all o
 it. Both use the same validation windows (best checkpoint kept) and the same
 test windows. Results go to <out>/<dataset>_<regime>/<mode>[_<size>_seed<N>].json;
 finished runs are skipped.
+
+Validation (for keeping the best checkpoint) runs at step 0, every 25 steps up to
+step 1,000, then every 250. Fine-tuned models peaked before the first check in the
+first flu run, which used every 250 only (PROJECT_LOG.md 2026-11-21). Fine-tuned
+runs also record the pretrained model's test scores before any fine-tuning
+("test_step0"), and every run records each test window's CRPS and 90% coverage.
 """
 
 import argparse
@@ -25,6 +31,7 @@ import time
 
 import torch
 
+from lcm.data import T_CTX
 from lcm.evaluate import forecast_metrics
 from lcm.model import LCM
 from lcm.real import REAL, point_crps, seasonal_episodes, split_starts, to_episodes
@@ -34,7 +41,7 @@ p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDes
 p.add_argument("--dataset", required=True, choices=sorted(REAL))
 p.add_argument("--regime", required=True, choices=["small", "full"])
 p.add_argument("--mode", required=True, choices=["scratch", "finetune", "baselines"])
-p.add_argument("--out", default=os.path.expanduser("~/lcm-runs/phase1"))
+p.add_argument("--out", default=os.path.expanduser("~/lcm-runs/phase1_v2"))
 p.add_argument("--seed", type=int, default=0)
 p.add_argument("--d", type=int, default=128)
 p.add_argument("--layers", type=int, default=4)
@@ -45,6 +52,9 @@ p.add_argument("--steps", type=int, default=5000)
 p.add_argument("--batch", type=int, default=32)
 p.add_argument("--lr", type=float, default=None, help="default 3e-4 from scratch, 1e-4 fine-tuning")
 p.add_argument("--precision", choices=PRECISIONS, default="fp32")
+p.add_argument("--dense-until", type=int, default=1000, help="validate every --dense-every steps up to here")
+p.add_argument("--dense-every", type=int, default=25)
+p.add_argument("--every", type=int, default=250, help="validation spacing after --dense-until")
 args = p.parse_args()
 
 if args.mode == "finetune" and not args.init:
@@ -97,14 +107,22 @@ model = LCM(d=args.d, layers=args.layers, heads=args.heads).to(dev)
 if args.init:
     model.load_state_dict(torch.load(args.init, map_location=dev))
 lr = args.lr or (1e-4 if args.init else 3e-4)
+val_steps = sorted({0} | set(range(args.dense_every, min(args.dense_until, args.steps) + 1, args.dense_every))
+                   | set(range(args.dense_until + args.every, args.steps + 1, args.every)) | {args.steps})
 t0 = time.time()
+step0 = None
+if args.init:                                         # the pretrained model before any fine-tuning
+    step0 = forecast_metrics(model, tensors["test"], limit=counts["test"])
+    print(f"  step 0 (no fine-tuning): test crps {step0['crps']:.3f}  cover90 {step0['cover90']:.2f}")
 hist = train(model, {args.dataset: tensors["train"]}, args.steps, batch_size=args.batch, lr=lr, seed=args.seed,
-             log_every=max(args.steps // 20, 1), tag=name, val={args.dataset: tensors["val"]},
-             precision=args.precision)
+             tag=name, val={args.dataset: tensors["val"]}, precision=args.precision, eval_at=val_steps)
 best_step = min(hist, key=lambda h: h[2])[0]
-metrics = forecast_metrics(model, tensors["test"], limit=counts["test"])
+metrics = forecast_metrics(model, tensors["test"], limit=counts["test"], per_window=True)
 print(f"  test crps {metrics['crps']:.3f} (persist {metrics['persist_crps']:.3f})  cover90 {metrics['cover90']:.2f}")
 res.update(seed=args.seed, size=size, model=dict(d=args.d, layers=args.layers, heads=args.heads), init=args.init,
            steps=args.steps, batch=args.batch, lr=lr, precision=args.precision, best_step=best_step, loss=hist,
-           minutes=round((time.time() - t0) / 60, 1), test=metrics)
+           minutes=round((time.time() - t0) / 60, 1), val_steps=val_steps, test=metrics,
+           test_forecast_start=[int(ds["times"][s + T_CTX]) for s in episodes["test"][1]])
+if step0 is not None:
+    res["test_step0"] = step0
 save(res)

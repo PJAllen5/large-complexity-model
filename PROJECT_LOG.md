@@ -1825,3 +1825,65 @@ recorded):**
 
 About 1 GPU-h. Report it as a follow-up next to the pre-registered result,
 not in place of it.
+
+### 2026-11-21: Flu rerun set up with dense validation (before neurons)
+
+**Decision (PJ):** rerun flu with the validation fix before moving on to
+neurons.
+- *Why:* in the first flu run, all 12 fine-tuned models peaked at the first
+  check (step 250), so the comparison may have missed fine-tuning's best
+  point. The same settings would affect every later dataset.
+
+**What changes (applied equally to from-scratch and fine-tuned runs):**
+- **Validation steps:** step 0, every 25 steps up to 1,000, then every 250
+  (57 checks instead of 20). Step 0 can be the checkpoint kept, so a
+  fine-tuned model is never forced to train at all.
+- **Fine-tuned runs record the pretrained model's test scores before any
+  fine-tuning** (`test_step0`, the zero-shot score).
+- **Every run records each test window's CRPS and 90% coverage,** plus
+  the forecast-start week, for coverage by season.
+- **Results go to `~/lcm-runs/phase1_v2`;** the first run stays in
+  `~/lcm-runs/phase1` and in [results_phase1/](results_phase1/).
+- **Everything else is unchanged:** splits, regimes, sizes, seeds, 5,000
+  steps, learning rates, and the verdict criteria.
+
+**Which verdict counts:**
+- The rerun's verdict will be the **flu result going forward**, because it
+  fixes a measurement flaw that hit only the fine-tuned side.
+- This was decided **before seeing any rerun results.**
+- The first run's FAIL stays in the log as recorded.
+
+**Also reported (no pass/fail):**
+- the zero-shot score;
+- the best-step distribution;
+- coverage by flu season (to check whether overconfidence is concentrated
+  in the COVID and post-COVID seasons).
+
+**Built**
+- **`train(..., eval_at=[...])`:** explicit validation steps, including
+  step 0. The default `log_every` spacing is unchanged, and a test checks
+  that.
+- **`forecast_metrics(..., per_window=True)`.**
+- **`phase1.py`:** `--dense-until` / `--dense-every` / `--every`.
+- **`phase1_report.py`:** new columns (no fine-tuning, scratch coverage,
+  best steps) and the coverage-by-season table. Older result files without
+  these fields still render.
+
+**Tested**
+- **93/93 tests pass**, 4 new:
+  - explicit validation steps, with step 0 kept when it's best;
+  - the default schedule unchanged;
+  - per-window metrics averaging to the totals;
+  - report season coverage and step 0.
+- **Laptop dry run** (1.08M, 120 steps, flu small):
+  - validation ran at 0, 25, 50, 75, 100 and 120;
+  - the step-0 score was recorded;
+  - per-window coverage for all 517 test windows;
+  - the report showed the season table (forecast starts from 2016w36 to
+    2026w30).
+- Rendering the old `results_phase1` report gave the same numbers.
+
+**Not tested:** the real rerun.
+
+**Estimated cost:** about 40 min (8.5M) and 80 min (28M) on A30s,
+~2 GPU-h. Free.

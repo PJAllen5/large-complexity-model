@@ -438,6 +438,15 @@ sacct -j <job id> --format=JobID,State,Elapsed -X
 ```
 
 **Paste both outputs to Claude.**
+
+**Since 2026-11-21 the job writes to `~/lcm-runs/phase1_v2`** (the dense
+validation schedule; the first flu run stays in `~/lcm-runs/phase1`). Use that
+folder in the report command:
+
+```bash
+.venv/bin/python phase1_report.py ~/lcm-runs/phase1_v2 flu
+```
+
 ---
 
 ## Troubleshooting
