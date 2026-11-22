@@ -191,6 +191,25 @@ the specialists win.** Report:
 - **Next test (proposed):** train the joint model 4× longer, to see whether
   n-body and epidemic catch up.
 
+## Phase 1: real data (2026-11-21)
+
+Does pretraining on the 8 simulators help forecast a real system? Four
+datasets are planned and run one at a time: flu, neurons, baboon movement,
+and power-grid frequency.
+
+**US flu** (CDC ILINet, 10 HHS regions, weekly, 2002–2026). Report:
+[results_phase1/flu_PHASE1.md](results_phase1/flu_PHASE1.md).
+
+- **The model forecasts flu well:** 35–40% lower error than "same week last
+  year", even from 3 seasons of data.
+- **Pretraining on simulators didn't help** (fine-tuned / from-scratch
+  0.95–1.07; the pre-registered bar was 0.90). This is the dataset with the
+  closest simulator match.
+- **The forecasts are overconfident:** the 90% range holds the truth only
+  41–77% of the time.
+- **Caveat:** fine-tuned models all peaked at the first validation check,
+  so their best point was probably missed. A finer rerun is proposed.
+
 ## What's next (Phase 1)
 
 - **Real data**, one field at a time:
