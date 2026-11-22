@@ -1631,3 +1631,23 @@ epidemic 1.11)
   A step-display bug ("0k" for steps under 1,000) was found and fixed.
 
 **Not tested:** the real runs on ORCA, or queue times on `normal`.
+
+### 2026-11-21: n-body / epidemic test not run; Phase 1 next
+
+**Decision (PJ):** don't run the two-arm test (640k-step and reweighted
+joint models at 8.5M). Move on to planning Phase 1 (scale-up to real data)
+instead.
+- *Why:* the simulated-systems question is mostly answered. At 28M, one
+  joint model is within ~4% of 8 fully trained specialists with 1/8 of the
+  compute. Explaining the last 4% matters less than testing the idea on
+  real data.
+
+**Kept (PR #22, merged):** per-system validation logging, and weighted
+sampling (`--system-weights`).
+- Both are expected to be needed in Phase 1, where real datasets differ in
+  size and difficulty.
+- The `--joint-640k` and `--joint-weighted` modes remain, unused.
+
+**Open question, not answered:** why n-body (gap 1.31 at 28M) and epidemic
+(1.11) lag the specialists. The leading hypothesis (too little training
+per system inside the joint model) is untested.
