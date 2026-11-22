@@ -1651,3 +1651,105 @@ sampling (`--system-weights`).
 **Open question, not answered:** why n-body (gap 1.31 at 28M) and epidemic
 (1.11) lag the specialists. The leading hypothesis (too little training
 per system inside the joint model) is untested.
+
+### 2026-11-21: Phase 1 plan; first dataset (flu) set up
+
+**Question:** does pretraining on the 8 simulated systems help forecast a
+**real** system, especially when real data is scarce?
+
+**Decision (PJ):** set up tests for four real datasets and run them one at a
+time.
+- The test code is shared; each dataset gets its own loader, built and run
+  in turn (each needs its data inspected first).
+- The success bar and model sizes are the ones proposed below. PJ didn't
+  change them.
+
+| Order | Dataset | Fits as | Closest simulator | Access (checked 2026-11-21) |
+|---|---|---|---|---|
+| 1 | US flu (CDC ILINet wILI), 10 HHS regions, weekly | 10 entities × 1 feature; graph = shared borders | Epidemic | Delphi Epidata API, public US government data. **Set up.** |
+| 2 | Allen Brain Observatory 2-photon (ΔF/F) | 10–12 neurons × 1 feature | Neurons | NWB files via AllenSDK or public AWS bucket; Allen Institute terms of use |
+| 3 | Baboon troop GPS (Crofoot et al. 2015, Movebank) | up to 12 animals × x, y, vx, vy | Boids | Movebank Data Repository, CC0. Sampling rate to confirm |
+| 4 | Power-grid frequency (KIT database) | 4 synchronized sites, 1 s | Kuramoto | Database of 17 locations; the download link and licence still need checking |
+
+ΔF/F is the change in a neuron's fluorescence relative to its baseline,
+a proxy for its activity.
+
+**Design (same for every dataset)**
+- **Splits:** by time (train earliest, then validation, then test), so
+  nothing is learned from the period being tested. Episodes are 64-step
+  windows (48 history + 16 forecast), entirely inside one split, with no
+  missing values.
+- **Regimes:**
+  - **small:** a short training range;
+  - **full:** all training data.
+
+  Both use the same validation windows (best checkpoint kept) and the same
+  test windows.
+- **Models:**
+  - **from scratch** (lr 3e-4);
+  - **fine-tuned** from the 160k-step joint checkpoint of the same size and
+    seed (lr 1e-4);
+  - both at 8.5M and 28M, seeds 0–2, 5,000 steps, batch 32, bf16.
+- **Baselines:**
+  - persistence (the last value);
+  - seasonal-naive (the value one period earlier), when the dataset has a
+    period.
+- **Metric:** CRPS on test windows in the model's normalised units (each
+  window normalised with its own history). For a point baseline, CRPS
+  equals the mean absolute error.
+
+**Pre-registered verdict** (small-data regime, per size; all four must
+hold):
+- **Pretraining helps:** fine-tuned CRPS ≤ 0.90 × from-scratch (mean over
+  seeds).
+- **Beats persistence.**
+- **Beats seasonal-naive** (if the dataset has a period).
+- **Calibrated:** the 90% range holds the truth 80–95% of the time.
+- The full-data regime is reported without a verdict.
+
+**Flu specifics**
+- **Data:** 1,259 weeks, 2002w40–2026w45, no gaps; earlier years have
+  summer gaps. Committed as `data/real/flu_hhs_wili.csv` (110 KB), with
+  the source in `data/real/README.md`.
+- **Graph:** HHS regions that share a land border (16 pairs).
+- **Splits** (by flu season, week 40 to week 39):
+  - train 2002–03 to 2012–13 (11 seasons, 511 windows);
+  - small train = the last 3 of those (2010–11 to 2012–13, 93 windows);
+  - val 2013–14 and 2014–15 (42 windows);
+  - test 2015–16 onward (517 windows; includes the 2020–21 COVID season
+    with almost no flu).
+- **Period:** 52 weeks.
+- **Baselines** (measured on the laptop): persistence **0.593**,
+  seasonal-naive **0.469**.
+  - "Same week last year" is a strong bar, which makes this a fair test.
+
+**Built**
+- **`lcm/real.py`:** windows, the seasonal baseline, point-forecast CRPS,
+  the flu loader and graph.
+- **`phase1.py`:** one run per call (baselines, scratch or finetune);
+  finished runs are skipped.
+- **`phase1_report.py`:** tables and the verdict.
+- **`orca/phase1.sbatch`:** an array over sizes; refuses to run if a
+  pretrained checkpoint is missing.
+
+**Bugs found while building**
+- The seasonal baseline first wrote lagged values into one shared array,
+  so overlapping windows corrupted each other's history. Caught by an
+  assertion; each window is now built separately, and a test covers it.
+- One of my own tests had the gap at the wrong step. The test was fixed,
+  not the code.
+
+**Tested**
+- **89/89 tests pass**, 11 of them new: windows and gaps, entity limits,
+  seasonal lag and overlap, point CRPS, the flu loader (shape, graph,
+  split boundaries, 93 small windows), and the report verdict
+  (pass/fail cases).
+- **A dry run of `orca/phase1.sbatch` on the laptop:**
+  - 1.08M, 4 steps, random stand-in checkpoints, stand-ins for `module` and
+    `nvidia-smi`;
+  - all 14 result files written (2 baselines + 12 runs) in ~8 min on MPS;
+  - the report and verdict rendered;
+  - a resubmit skipped all 14.
+
+**Not tested:** real training, or the real pretrained checkpoints on ORCA
+(the job checks they exist).
