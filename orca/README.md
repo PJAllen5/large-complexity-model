@@ -408,6 +408,36 @@ sacct -j <640k array id>,<weighted array id> --format=JobID,State,Elapsed -X | g
 check, per-system gaps next to the 160k joint model, and the step where
 each system's validation NLL was best.
 
+
+## 15. Phase 1: real data, one dataset at a time
+
+Does pretraining on the 8 simulators help forecast a real system? For each
+dataset: baselines, then from-scratch and fine-tuned models at 8.5M and 28M,
+in a small-data and a full-data regime, 3 seeds. The fine-tuned models start
+from the 160k-step joint checkpoints in `~/lcm-runs/stageA_joint160k`. The
+first dataset is US flu (`data/real/flu_hhs_wili.csv`, in the repo).
+
+```bash
+git pull
+```
+
+```bash
+DATASET=flu sbatch --array=0-1 orca/phase1.sbatch
+```
+
+That's 2 array tasks on A30s (0 = 8.5M, 1 = 28M), each 12 runs; expected about
+1 h (8.5M) and 1.5-2 h (28M). If a task fails, submitting again skips finished
+runs. When `squeue -u $USER` is empty:
+
+```bash
+sacct -j <job id> --format=JobID,State,Elapsed -X
+```
+
+```bash
+.venv/bin/python phase1_report.py ~/lcm-runs/phase1 flu
+```
+
+**Paste both outputs to Claude.**
 ---
 
 ## Troubleshooting
