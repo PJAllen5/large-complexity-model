@@ -2028,3 +2028,84 @@ a Tycho real-data pretraining experiment on flu (8.5M), then neurons.
   `best_step` were recorded.
 
 **Not tested:** early stopping in a real ORCA run.
+
+### 2026-11-22: Project Tycho data for real-data pretraining (part A: data)
+
+**Decision (PJ):** build the Tycho experiment as proposed:
+- pretrain 8.5M models on (a) Tycho only and (b) simulators + Tycho, 3
+  seeds each;
+- fine-tune on flu with the existing pipeline;
+- pre-registered bar: the flu criteria **plus** beating the
+  simulator-only fine-tuned model.
+
+This entry covers part A (data). Part B (pretraining and fine-tuning) comes
+in the next PR.
+
+**Licence and source checks** (data card:
+[data/real/tycho_CARD.md](data/real/tycho_CARD.md))
+- Project Tycho Level 1 v1.0.0 (Zenodo 12608992), Creative Commons
+  Attribution; cite van Panhuis et al., NEJM 2013.
+- The data.gov copy is a different, larger dataset under ODbL, so it isn't
+  used.
+- **Downloaded with PJ's permission:** 3.6 MB zip, MD5 matches the Zenodo
+  record.
+- **The 30.9 MB CSV is not committed;** `python -m lcm.tycho fetch`
+  downloads it and checks the MD5.
+
+**Inspection**
+- **Absent weeks are true gaps:** zero-case weeks are explicit rows, 22–64%
+  of rows depending on disease.
+- **Weeks missing per state:** 8–43% by disease.
+- **All data ends by 2011,** so there's no overlap with the flu test period.
+
+**Format choices**
+- **Episode:** one disease in one census division (≤ 9 states, which fits
+  the 12 entities). It includes only the states that reported every week of
+  the 64-week window, at least 3, and masks the rest.
+- **Feature and graph:** incidence per 100,000 as the one feature; all pairs
+  of states linked.
+- **Activity filter:** drop windows with fewer than 25% of values above
+  zero.
+- **Calendar:** MMWR epi-week calendar, checked against all 1,258 flu week
+  steps.
+
+**Split changed during the build**
+- **Plan:** hold out whole 6-year calendar blocks.
+- **Problem:** usable windows bunch up in a few years per disease, so the
+  split was absurd:
+  - hepatitis A was all validation;
+  - pertussis had no validation at all;
+  - polio had 1,601 validation windows against 468 for training.
+- **Replaced with two held-out census divisions (Mid-Atlantic, Pacific):**
+  16–28% validation per disease.
+  - The trade-off: validation shares years with training, so it's somewhat
+    optimistic.
+  - It's only used to pick the pretraining checkpoint, never the flu test.
+
+**Result:** ~7,400 training and ~2,100 validation windows (heavily
+overlapping).
+
+| Disease | Train | Val | Years |
+|---|---|---|---|
+| smallpox | 2,445 | 471 | 1928–1945 |
+| polio | 1,834 | 573 | 1928–1938 |
+| pertussis | 1,421 | 427 | 1938–2010 |
+| measles | 1,261 | 488 | 1928–1974 |
+| mumps | 247 | 52 | 1974–1989 |
+| hepatitis A | 195 | 70 | 1966–1968 |
+
+- **Rubella left out:** 14 windows, below the 100 minimum.
+- **Bias to keep in mind:** windows cluster in a few eras (polio 1928–1938;
+  hepatitis A 1966–1968), favouring well-reporting states and active
+  epidemic periods.
+
+**Tested**
+- **100/100 tests pass,** 6 new: the epi-week calendar against flu weeks;
+  windows only with fully reported states; the 3-state minimum and the
+  activity filter; masks and links; build with the division split and the
+  small-disease cut-off; and fetch refusing a bad checksum.
+- **The real `fetch` from Zenodo:** checksum OK, a rerun skipped the
+  download, and the CSV was byte-identical to the first download.
+- **The real `build`:** about 4 s on the laptop.
+
+**Not tested:** fetch and build on ORCA's login node.
