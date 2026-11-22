@@ -65,7 +65,7 @@ def validation_nll(model, val_sets, precision="fp32", batch_size=64):
 
 
 def train(model, datasets, steps, batch_size=64, lr=3e-4, seed=0, warmup=200, log_every=500, tag="",
-          val=None, precision="fp32", keep_best=True, weights=None, val_log=None, eval_at=None):
+          val=None, precision="fp32", keep_best=True, weights=None, val_log=None, eval_at=None, patience=None):
     """Train `model` on `datasets` ({name: tensors}) for `steps` updates.
 
     Returns the history as (step, train_nll) tuples, or (step, train_nll, val_nll)
@@ -83,6 +83,10 @@ def train(model, datasets, steps, batch_size=64, lr=3e-4, seed=0, warmup=200, lo
     e.g. dense early checks for fine-tuning. Step 0 means "before any training":
     the starting weights are validated too and can be the ones kept. The last step
     is always checked.
+
+    `patience` (optional, with `val` and `keep_best`): stop early once this many
+    validation checks in a row have not beaten the best so far. The best weights
+    are kept as usual; the history then ends at the step where training stopped.
     """
     set_precision(precision)
     sampler = MixedSampler(datasets, weights)
@@ -92,11 +96,11 @@ def train(model, datasets, steps, batch_size=64, lr=3e-4, seed=0, warmup=200, lo
         opt, lambda s: min(1, (s + 1) / warmup) * 0.5 * (1 + math.cos(math.pi * min(s / steps, 1))))
     model.train()
     hist, t0, run, last = [], time.time(), 0.0, 0
-    best_val, best_state = float("inf"), None
+    best_val, best_state, since_best = float("inf"), None, 0
     checks = set(eval_at) if eval_at is not None else None
 
     def check(step, train_nll):
-        nonlocal best_val, best_state
+        nonlocal best_val, best_state, since_best
         msg = f"  [{tag}] step {step:5d}  nll {train_nll:7.3f}"
         if val:
             per = validation_by_domain(model, val, precision)
@@ -106,9 +110,11 @@ def train(model, datasets, steps, batch_size=64, lr=3e-4, seed=0, warmup=200, lo
                 val_log.append([step, per])
             msg += f"  val {v:7.3f}"
             if keep_best and v < best_val:
-                best_val = v
+                best_val, since_best = v, 0
                 best_state = {k: t.detach().clone() for k, t in model.state_dict().items()}
                 msg += "  *best"
+            else:
+                since_best += 1
         else:
             hist.append((step, train_nll))
         print(f"{msg}  {time.time() - t0:6.0f}s", flush=True)
@@ -131,6 +137,9 @@ def train(model, datasets, steps, batch_size=64, lr=3e-4, seed=0, warmup=200, lo
         if due or step == steps:
             check(step, run / (step - last))
             run, last = 0.0, step
+            if patience and val and keep_best and since_best >= patience:
+                print(f"  [{tag}] early stop at step {step}: no new best in {patience} checks", flush=True)
+                break
     if best_state is not None:
         model.load_state_dict(best_state)
     model.eval()

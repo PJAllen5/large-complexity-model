@@ -168,3 +168,19 @@ def test_per_window_metrics_average_to_the_totals():
     assert len(m["window_crps"]) == 6 and len(m["window_cover90"]) == 6
     assert sum(m["window_crps"]) / 6 == pytest.approx(m["crps"], rel=1e-5)   # equal-sized windows
     assert sum(m["window_cover90"]) / 6 == pytest.approx(m["cover90"], rel=1e-5)
+
+
+def test_patience_stops_early_and_keeps_best(monkeypatch):
+    import lcm.train as T
+    scores, snapshots = iter([1.0, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]), []
+
+    def fake(model, val, precision="fp32"):
+        snapshots.append(torch.cat([p.detach().flatten().clone() for p in model.parameters()]))
+        return {"x": next(scores)}
+
+    monkeypatch.setattr(T, "validation_by_domain", fake)
+    torch.manual_seed(0)
+    m = LCM(d=32, layers=1, heads=2)
+    hist = T.train(m, _sets(), 100, batch_size=4, seed=0, log_every=1, val={"x": None}, patience=3)
+    assert [h[0] for h in hist] == [1, 2, 3, 4, 5]          # best at 2, then 3 checks without a new best
+    assert torch.equal(torch.cat([p.detach().flatten() for p in m.parameters()]), snapshots[1])

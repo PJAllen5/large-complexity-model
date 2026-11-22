@@ -55,6 +55,9 @@ p.add_argument("--precision", choices=PRECISIONS, default="fp32")
 p.add_argument("--dense-until", type=int, default=1000, help="validate every --dense-every steps up to here")
 p.add_argument("--dense-every", type=int, default=25)
 p.add_argument("--every", type=int, default=250, help="validation spacing after --dense-until")
+p.add_argument("--patience", type=int, default=12,
+               help="stop after this many validation checks without a new best (0 = never); 12 kept the "
+                    "same checkpoint as full training in all 24 flu runs (PROJECT_LOG.md 2026-11-22)")
 args = p.parse_args()
 
 if args.mode == "finetune" and not args.init:
@@ -115,12 +118,13 @@ if args.init:                                         # the pretrained model bef
     step0 = forecast_metrics(model, tensors["test"], limit=counts["test"])
     print(f"  step 0 (no fine-tuning): test crps {step0['crps']:.3f}  cover90 {step0['cover90']:.2f}")
 hist = train(model, {args.dataset: tensors["train"]}, args.steps, batch_size=args.batch, lr=lr, seed=args.seed,
-             tag=name, val={args.dataset: tensors["val"]}, precision=args.precision, eval_at=val_steps)
+             tag=name, val={args.dataset: tensors["val"]}, precision=args.precision, eval_at=val_steps,
+             patience=args.patience or None)
 best_step = min(hist, key=lambda h: h[2])[0]
 metrics = forecast_metrics(model, tensors["test"], limit=counts["test"], per_window=True)
 print(f"  test crps {metrics['crps']:.3f} (persist {metrics['persist_crps']:.3f})  cover90 {metrics['cover90']:.2f}")
 res.update(seed=args.seed, size=size, model=dict(d=args.d, layers=args.layers, heads=args.heads), init=args.init,
-           steps=args.steps, batch=args.batch, lr=lr, precision=args.precision, best_step=best_step, loss=hist,
+           steps=args.steps, stopped_at=hist[-1][0], patience=args.patience, batch=args.batch, lr=lr, precision=args.precision, best_step=best_step, loss=hist,
            minutes=round((time.time() - t0) / 60, 1), val_steps=val_steps, test=metrics,
            test_forecast_start=[int(ds["times"][s + T_CTX]) for s in episodes["test"][1]])
 if step0 is not None:
