@@ -28,8 +28,15 @@ import numpy as np
 HELP, COVER = 0.90, (0.80, 0.95)
 
 
+def run_key(r):
+    """scratch, finetune (simulator-pretrained), or finetune-<label> (other pretraining)."""
+    if r["mode"] != "finetune" or r.get("pretrained", "sims") in (None, "sims"):
+        return r["mode"]
+    return f"finetune-{r['pretrained']}"
+
+
 def load(folder):
-    """(baselines dict or None, {size: {mode: [run, ...]}})"""
+    """(baselines dict or None, {size: {key: [run, ...]}}) with keys from run_key."""
     base, runs = None, {}
     if not os.path.isdir(folder):
         return base, runs
@@ -40,7 +47,7 @@ def load(folder):
         if r["mode"] == "baselines":
             base = r
         else:
-            runs.setdefault(r["size"], {}).setdefault(r["mode"], []).append(r)
+            runs.setdefault(r["size"], {}).setdefault(run_key(r), []).append(r)
     return base, runs
 
 
@@ -49,19 +56,31 @@ def stat(rs, key):
     return v.mean(), (v.std(ddof=1) if len(v) > 1 else float("nan")), len(v)
 
 
-def verdict(base, modes):
-    """[(check, passed, detail)] for one size, or None if a mode is missing."""
-    if not base or "scratch" not in modes or "finetune" not in modes:
+def label(key):
+    return "sims" if key == "finetune" else key[len("finetune-"):]
+
+
+def verdict(base, modes, key="finetune"):
+    """[(check, passed, detail)] for one size and pretraining, or None if a run type is missing.
+
+    For pretraining other than the simulators (key finetune-<label>), one more check:
+    it must beat the simulator-pretrained fine-tuned model (Tycho test, PROJECT_LOG 2026-11-22)."""
+    if not base or "scratch" not in modes or key not in modes:
         return None
-    ft, _, _ = stat(modes["finetune"], "crps")
+    ft, _, _ = stat(modes[key], "crps")
     sc, _, _ = stat(modes["scratch"], "crps")
-    cov, _, _ = stat(modes["finetune"], "cover90")
+    cov, _, _ = stat(modes[key], "cover90")
     out = [("Pretraining helps (fine-tuned <= 0.90 x scratch)", ft <= HELP * sc, f"{ft:.3f} vs {sc:.3f} "
             f"(ratio {ft / sc:.3f})"),
            ("Beats persistence", ft < base["persist_crps"], f"{ft:.3f} vs {base['persist_crps']:.3f}")]
     if "seasonal_crps" in base:
         out.append(("Beats seasonal-naive", ft < base["seasonal_crps"], f"{ft:.3f} vs {base['seasonal_crps']:.3f}"))
     out.append(("Calibrated (90% range holds truth 80-95%)", COVER[0] <= cov <= COVER[1], f"{cov:.2f}"))
+    if key != "finetune":
+        if "finetune" not in modes:
+            return None
+        sims = stat(modes["finetune"], "crps")[0]
+        out.append(("Beats the simulator-pretrained fine-tuned model", ft < sims, f"{ft:.3f} vs {sims:.3f}"))
     return out
 
 
@@ -86,34 +105,40 @@ def coverage_by_season(runs):
     return out
 
 
+def ft_keys(modes):
+    """Fine-tuned run types present: the simulator one first, then the others alphabetically."""
+    return sorted((k for k in modes if k.startswith("finetune")), key=lambda k: (k != "finetune", k))
+
+
 def section(title, base, runs, with_verdict):
     lines = [f"## {title}", ""]
     if base:
         b = f"Persistence {base['persist_crps']:.3f}"
         b += f"; seasonal-naive {base['seasonal_crps']:.3f}" if "seasonal_crps" in base else ""
         lines += [f"Windows: {base['windows']}. Baselines (CRPS): {b}.", ""]
-    lines += ["| Size | From scratch | Fine-tuned | Fine-tuned / scratch | Coverage (fine-tuned) | Seeds "
-              "| No fine-tuning | Coverage (scratch) | Best step scratch / fine-tuned |",
-              "|---|---|---|---|---|---|---|---|---|"]
+    lines += ["| Size | Pretraining | From scratch | Fine-tuned | Fine-tuned / scratch | Coverage (fine-tuned) "
+              "| Seeds | No fine-tuning | Coverage (scratch) | Best step scratch / fine-tuned |",
+              "|---|---|---|---|---|---|---|---|---|---|"]
     for size, modes in runs.items():
-        cells, n = [], []
-        for mode in ("scratch", "finetune"):
-            if mode in modes:
-                m, sd, k = stat(modes[mode], "crps")
-                cells.append(f"{m:.3f} ± {sd:.3f}")
-                n.append(f"{mode} {k}")
-            else:
-                cells.append("-")
-        ratio = (f"{stat(modes['finetune'], 'crps')[0] / stat(modes['scratch'], 'crps')[0]:.3f}"
-                 if {"scratch", "finetune"} <= set(modes) else "-")
-        cov = f"{stat(modes['finetune'], 'cover90')[0]:.2f}" if "finetune" in modes else "-"
-        s0 = [r["test_step0"]["crps"] for r in modes.get("finetune", []) if "test_step0" in r]
-        zero = f"{np.mean(s0):.3f}" if s0 else "-"
-        cov_sc = f"{stat(modes['scratch'], 'cover90')[0]:.2f}" if "scratch" in modes else "-"
-        best = " / ".join(",".join(str(r.get("best_step", "?")) for r in modes.get(m, [])) or "-"
-                          for m in ("scratch", "finetune"))
-        lines.append(f"| {size} | {cells[0]} | {cells[1]} | {ratio} | {cov} | {', '.join(n)} | {zero} | {cov_sc} "
-                     f"| {best} |")
+        for key in ft_keys(modes) or ["finetune"]:
+            cells, n = [], []
+            for mode in ("scratch", key):
+                if mode in modes:
+                    m, sd, k = stat(modes[mode], "crps")
+                    cells.append(f"{m:.3f} ± {sd:.3f}")
+                    n.append(f"{'scratch' if mode == 'scratch' else 'finetune'} {k}")
+                else:
+                    cells.append("-")
+            ratio = (f"{stat(modes[key], 'crps')[0] / stat(modes['scratch'], 'crps')[0]:.3f}"
+                     if {"scratch", key} <= set(modes) else "-")
+            cov = f"{stat(modes[key], 'cover90')[0]:.2f}" if key in modes else "-"
+            s0 = [r["test_step0"]["crps"] for r in modes.get(key, []) if "test_step0" in r]
+            zero = f"{np.mean(s0):.3f}" if s0 else "-"
+            cov_sc = f"{stat(modes['scratch'], 'cover90')[0]:.2f}" if "scratch" in modes else "-"
+            best = " / ".join(",".join(str(r.get("best_step", "?")) for r in modes.get(m, [])) or "-"
+                              for m in ("scratch", key))
+            lines.append(f"| {size} | {label(key)} | {cells[0]} | {cells[1]} | {ratio} | {cov} | {', '.join(n)} "
+                         f"| {zero} | {cov_sc} | {best} |")
     seasons = coverage_by_season(runs)
     if seasons:
         cols = list(seasons)
@@ -126,13 +151,15 @@ def section(title, base, runs, with_verdict):
     if with_verdict:
         lines += ["", "### Verdict (criteria fixed before running)", ""]
         for size, modes in runs.items():
-            v = verdict(base, modes)
-            if v is None:
-                lines.append(f"- **{size}: NOT YET** (needs baselines, scratch and fine-tuned runs)")
-                continue
-            ok = all(p for _, p, _ in v)
-            lines.append(f"- **{size}: {'PASS' if ok else 'FAIL'}**")
-            lines += [f"  - {c}: {'yes' if p else 'NO'} ({d})" for c, p, d in v]
+            for key in ft_keys(modes) or ["finetune"]:
+                v = verdict(base, modes, key)
+                if v is None:
+                    lines.append(f"- **{size} ({label(key)}): NOT YET** (needs baselines, scratch and "
+                                 "fine-tuned runs)")
+                    continue
+                ok = all(p for _, p, _ in v)
+                lines.append(f"- **{size} ({label(key)}): {'PASS' if ok else 'FAIL'}**")
+                lines += [f"  - {c}: {'yes' if p else 'NO'} ({d})" for c, p, d in v]
     return lines + [""]
 
 

@@ -97,7 +97,7 @@ def test_report_verdict(tmp_path, ft, cover, expected):
         _run(small, "scratch", "8.5M", seed, 0.50)
         _run(small, "finetune", "8.5M", seed, ft, cover)
     text = pr.report(str(tmp_path), "flu")
-    assert f"**8.5M: {expected}**" in text
+    assert f"**8.5M (sims): {expected}**" in text
 
 
 def test_report_beats_seasonal_check(tmp_path):
@@ -107,8 +107,8 @@ def test_report_beats_seasonal_check(tmp_path):
         _run(small, "scratch", "8.5M", seed, 0.50)
         _run(small, "finetune", "8.5M", seed, 0.40)
     text = pr.report(str(tmp_path), "flu")
-    assert "**8.5M: FAIL**" in text and "Beats seasonal-naive: NO" in text
-    assert "| 8.5M | 0.500 ± 0.000 | 0.400 ± 0.000 | 0.800 |" in text
+    assert "**8.5M (sims): FAIL**" in text and "Beats seasonal-naive: NO" in text
+    assert "| 8.5M | sims | 0.500 ± 0.000 | 0.400 ± 0.000 | 0.800 |" in text
 
 
 def test_report_coverage_by_season_and_step0(tmp_path):
@@ -128,3 +128,21 @@ def test_report_coverage_by_season_and_step0(tmp_path):
     text = pr.report(str(tmp_path), "flu")
     assert "| 0.700 | 0.90 | 500,500 / 25,25 |" in text      # no fine-tuning, scratch coverage, best steps
     assert "| 2019-20 | 0.75 | 0.75 |" in text and "| 2020-21 | 0.00 | 0.00 |" in text
+
+
+def test_report_compares_other_pretraining_with_the_simulator_one(tmp_path):
+    small = str(tmp_path / "flu_small")
+    _base(small)
+    for seed in range(2):
+        _run(small, "scratch", "8.5M", seed, 0.50)
+        _run(small, "finetune", "8.5M", seed, 0.44)
+        for lab, crps in (("tycho", 0.40), ("simtycho", 0.45)):
+            os.makedirs(small, exist_ok=True)
+            json.dump(dict(mode="finetune", pretrained=lab, size="8.5M", seed=seed, test=dict(crps=crps, cover90=0.9)),
+                      open(os.path.join(small, f"finetune-{lab}_8.5M_seed{seed}.json"), "w"))
+    text = pr.report(str(tmp_path), "flu")
+    rows = [line for line in text.splitlines() if line.startswith("| 8.5M |")]
+    assert [r.split(" | ")[1] for r in rows] == ["sims", "simtycho", "tycho"]
+    assert "**8.5M (tycho): PASS**" in text and "Beats the simulator-pretrained fine-tuned model: yes" in text
+    assert "**8.5M (simtycho): FAIL**" in text            # 0.45 is not <= 0.90 x 0.50, nor below 0.44
+    assert "**8.5M (sims): PASS**" in text

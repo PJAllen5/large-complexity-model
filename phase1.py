@@ -48,6 +48,9 @@ p.add_argument("--layers", type=int, default=4)
 p.add_argument("--heads", type=int, default=4)
 p.add_argument("--size", default=None, help="label for the model size in file names (e.g. 8.5M)")
 p.add_argument("--init", default=None, help="finetune: the pretrained joint model's checkpoint (.pt)")
+p.add_argument("--pretrained", default="sims",
+               help="finetune: label for what --init was pretrained on (sims = the Stage A simulator joint model; "
+                    "others, e.g. tycho, are saved as finetune-<label>)")
 p.add_argument("--steps", type=int, default=5000)
 p.add_argument("--batch", type=int, default=32)
 p.add_argument("--lr", type=float, default=None, help="default 3e-4 from scratch, 1e-4 fine-tuning")
@@ -69,7 +72,8 @@ ds = REAL[args.dataset]()
 folder = os.path.join(args.out, f"{args.dataset}_{args.regime}")
 os.makedirs(folder, exist_ok=True)
 size = args.size or f"d{args.d}x{args.layers}"
-name = "baselines" if args.mode == "baselines" else f"{args.mode}_{size}_seed{args.seed}"
+key = args.mode if args.mode != "finetune" or args.pretrained == "sims" else f"finetune-{args.pretrained}"
+name = "baselines" if args.mode == "baselines" else f"{key}_{size}_seed{args.seed}"
 path = os.path.join(folder, f"{name}.json")
 if os.path.exists(path):
     print(f"{path} exists; skipping")
@@ -123,7 +127,7 @@ hist = train(model, {args.dataset: tensors["train"]}, args.steps, batch_size=arg
 best_step = min(hist, key=lambda h: h[2])[0]
 metrics = forecast_metrics(model, tensors["test"], limit=counts["test"], per_window=True)
 print(f"  test crps {metrics['crps']:.3f} (persist {metrics['persist_crps']:.3f})  cover90 {metrics['cover90']:.2f}")
-res.update(seed=args.seed, size=size, model=dict(d=args.d, layers=args.layers, heads=args.heads), init=args.init,
+res.update(seed=args.seed, size=size, pretrained=args.pretrained if args.init else None, model=dict(d=args.d, layers=args.layers, heads=args.heads), init=args.init,
            steps=args.steps, stopped_at=hist[-1][0], patience=args.patience, batch=args.batch, lr=lr, precision=args.precision, best_step=best_step, loss=hist,
            minutes=round((time.time() - t0) / 60, 1), val_steps=val_steps, test=metrics,
            test_forecast_start=[int(ds["times"][s + T_CTX]) for s in episodes["test"][1]])

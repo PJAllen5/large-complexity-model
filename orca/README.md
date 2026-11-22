@@ -447,6 +447,48 @@ folder in the report command:
 .venv/bin/python phase1_report.py ~/lcm-runs/phase1_v2 flu
 ```
 
+
+## 16. Tycho experiment: pretraining on real epidemics, then flu
+
+Does pretraining on **real** epidemics of other diseases (Project Tycho) help
+flu more than the simulators do? Two pretraining variants at 8.5M, 3 seeds
+each, then fine-tuning on flu next to from-scratch and simulator-pretrained
+models.
+
+**1. Build the Tycho windows** (login node; downloads 3.6 MB from Zenodo and
+checks it; about 10 s):
+
+```bash
+git pull
+```
+
+```bash
+.venv/bin/python -m lcm.tycho fetch ~/lcm-runs/tycho && .venv/bin/python -m lcm.tycho build ~/lcm-runs/tycho
+```
+
+It should print `checksum OK`, then 6 diseases with train/val counts
+(smallpox 2445/471 ... hepatitis_a 195/70) and rubella left out.
+
+**2. Pretrain** (6 array tasks on A30s; up to ~1.5 h each, less if early
+stopping kicks in):
+
+```bash
+sbatch --array=0-5 orca/pretrain.sbatch
+```
+
+**3. When the queue is empty, fine-tune on flu** (one A30 task, about 1 h):
+
+```bash
+PHASE1_OUT=~/lcm-runs/phase1_tycho PHASE1_SIZES=8.5M PHASE1_VARIANTS="sims=$HOME/lcm-runs/stageA_joint160k tycho=$HOME/lcm-runs/pretrain_tycho simtycho=$HOME/lcm-runs/pretrain_simtycho" DATASET=flu sbatch --array=0 orca/phase1.sbatch
+```
+
+**4. Report:**
+
+```bash
+.venv/bin/python phase1_report.py ~/lcm-runs/phase1_tycho flu
+```
+
+**Paste the pretraining `sacct` check and the report to Claude.**
 ---
 
 ## Troubleshooting
