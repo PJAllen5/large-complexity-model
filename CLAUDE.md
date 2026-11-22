@@ -22,3 +22,9 @@ Record every decision, test, experiment run and result in
 - Full run: `.venv/bin/python experiment.py` (~82 min on an M3). Finished
   runs are cached in `results/runs/`, so a stopped run resumes.
 - GitHub repo is private: PJAllen5/large-complexity-model.
+
+## Real datasets (Phase 1)
+
+- Before training on a new real dataset, fill in a data card from
+  `data/real/CARD_TEMPLATE.md` and commit it with the loader. Check the
+  licence before committing any data: this repo is public.

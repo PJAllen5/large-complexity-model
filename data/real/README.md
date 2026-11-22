@@ -1,5 +1,13 @@
 # Real datasets (Phase 1)
 
+Every real dataset has a **data card** (licence, sensitivity, leakage audit,
+format choices, measurement quirks, baselines), filled in from
+[CARD_TEMPLATE.md](CARD_TEMPLATE.md) **before any training**.
+
+| Dataset | Card |
+|---|---|
+| US flu | [flu_CARD.md](flu_CARD.md) |
+
 ## flu_hhs_wili.csv
 
 - **What:** CDC ILINet weighted influenza-like illness (wILI), the percentage of

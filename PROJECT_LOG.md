@@ -1968,3 +1968,63 @@ logged):**
 - **Possible later variant:** pretrain on other *real* epidemic data
   (WHO FluNet, US state-level ILINet, COVID/RSV) instead of, or as well as,
   the simulators.
+
+### 2026-11-22: Early stopping and data cards (groundwork before Tycho and neurons)
+
+**Decision (PJ):** do this small groundwork step first. The plan after it:
+a Tycho real-data pretraining experiment on flu (8.5M), then neurons.
+
+**Early stopping**
+- **Rule:** `train(..., patience=N)` stops once N validation checks in a
+  row haven't beaten the best so far. The best weights are kept as before.
+  `phase1.py --patience`, **default 12** (0 = never stop). Each result
+  records `stopped_at`.
+- **Choosing N:** I replayed the 24 recorded flu-rerun validation curves
+  (`results_phase1_v2`) under each rule:
+
+| Patience | Kept checkpoint would change | Steps saved (mean / min) |
+|---|---|---|
+| 5 | 8 of 24 runs | 92% / 82% |
+| 8 | 3 of 24 | 88% / 55% |
+| **12** | **0 of 24** | **79% / 30%** |
+
+- **12 reproduces every flu-rerun selection exactly,** at about a fifth of
+  the training cost. It was chosen on validation curves only (no test
+  data). Other datasets may need a different value; each run's
+  `stopped_at` and `best_step` show it.
+- **Applies only to `phase1.py`.** Stage A (`experiment.py`) is unchanged.
+
+**Data cards**
+- **`data/real/CARD_TEMPLATE.md`**, to fill in before training on any new
+  real dataset. Sections:
+  - source and licence (can the data go in this public repo?);
+  - sensitivity (people, vulnerable species or sites);
+  - leakage audit (split, overlap with pretraining data, correlated outside
+    data, cutoff);
+  - format choices (entities, features, time step, gaps, graph);
+  - measurement quirks;
+  - baselines;
+  - size and storage.
+- **`data/real/flu_CARD.md`** filled in after the fact.
+- **Leakage note recorded there:** any real-data pretraining must end
+  before 2015w40, because state-level ILINet, other countries' flu and COVID
+  data all carry test-period information.
+- **Project `CLAUDE.md`** gains a rule: a data card, and a licence check
+  before committing data, for every new real dataset.
+
+**Observation (one seed, not pre-registered):**
+- While testing on the laptop, a **tiny model (d = 32, 1 layer, 22,856
+  parameters)** trained from scratch on flu (small regime, 3,000 steps)
+  reached test CRPS **0.290**, about the same as the 8.5M models (0.281–0.294).
+- **Implication:** the 8.5M and 28M models may be far bigger than flu needs.
+  Model size should probably be chosen per dataset, and a small model should
+  be one of the baselines. Worth checking with seeds before relying on it.
+
+**Tested**
+- **94/94 tests pass.** New: patience stops after 3 checks without
+  improvement and keeps the best weights.
+- **Laptop run of `phase1.py` with `--patience 4`:** it didn't stop early,
+  because that tiny model kept improving to step 2,750. `stopped_at` and
+  `best_step` were recorded.
+
+**Not tested:** early stopping in a real ORCA run.
