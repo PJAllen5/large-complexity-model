@@ -210,6 +210,19 @@ and power-grid frequency.
 - **Caveat:** fine-tuned models all peaked at the first validation check,
   so their best point was probably missed. A finer rerun is proposed.
 
+**Flu rerun with finer validation** (this result counts; report:
+[results_phase1_v2/flu_PHASE1.md](results_phase1_v2/flu_PHASE1.md)):
+
+- **Pretraining gives a small, consistent gain:** about 4–5% lower error in
+  3 of 4 settings. It's reliable only at 8.5M with little data, and well
+  short of the 10% bar, so the verdict is still FAIL.
+- **With no flu training at all,** the simulator-pretrained model beats
+  "same as last week" by ~17%, but not "same week last year".
+- **Best model:** fine-tuned 8.5M on full data, 45% below "same week last
+  year".
+- **Overconfidence is mostly in unusual seasons** (2019–20, 2021–22). There,
+  the pretrained models are better calibrated than from-scratch ones.
+
 ## What's next (Phase 1)
 
 - **Real data**, one field at a time:

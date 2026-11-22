@@ -1887,3 +1887,84 @@ neurons.
 
 **Estimated cost:** about 40 min (8.5M) and 80 min (28M) on A30s,
 ~2 GPU-h. Free.
+
+### 2026-11-21: Flu rerun result (dense validation): FAIL, small but consistent gain from pretraining
+
+**Run:** job 274518 on ORCA (A30, orcaga09). Both tasks COMPLETED:
+- 8.5M in 36 min;
+- 28M in 1 h 19 min (a few minutes more than the first run, because of the
+  extra validation checks).
+
+Free. Results:
+[results_phase1_v2/](results_phase1_v2/), report
+[results_phase1_v2/flu_PHASE1.md](results_phase1_v2/flu_PHASE1.md). This is
+the flu result going forward (decided before the rerun; see the previous
+entry). Reproducibility check: same seed, same validation NLL at step
+1,250 as the first run (0.959).
+
+**Headline (test CRPS, mean ± sd over 3 seeds)**
+
+| Regime | Size | Scratch | Fine-tuned | Ratio | Coverage scratch / fine-tuned | Best step scratch / fine-tuned |
+|---|---|---|---|---|---|---|
+| small | 8.5M | 0.294 ± 0.004 | **0.281 ± 0.002** | **0.954** | 0.62 / 0.70 | 425–550 / 75 |
+| small | 28M | 0.292 ± 0.014 | 0.309 ± 0.008 | 1.060 | 0.59 / 0.63 | 375–550 / 50–75 |
+| full | 8.5M | 0.266 ± 0.010 | 0.256 ± 0.010 | 0.961 | 0.71 / 0.76 | 900–950 / 100–125 |
+| full | 28M | 0.272 ± 0.016 | 0.260 ± 0.005 | 0.958 | 0.69 / 0.72 | 750–875 / 100–125 |
+
+- **Baselines:** persistence 0.593, seasonal-naive 0.469.
+- **No fine-tuning (pretrained on simulators only):**
+  - 8.5M 0.492 (0.482–0.503), 28M 0.498 (0.489–0.515);
+  - coverage 0.45–0.52.
+
+**Pre-registered verdict: FAIL at both sizes.**
+- **Pretraining helps (≤ 0.90):** NO.
+  - 8.5M small 0.954. The gain is small but reliable: the difference is
+    0.013 with seed sd ≤ 0.004.
+  - 28M small 1.060.
+- **Beats persistence and seasonal-naive:** yes.
+- **Calibrated:** NO (0.70, 0.63).
+
+**Findings**
+- **The coarse validation in the first run was a real flaw.**
+  - Fine-tuned models now peak at steps 50–125, against the step 250 they
+    were forced to before.
+  - Both sides improved: 8.5M small went 0.303 → 0.294 for scratch and
+    0.288 → 0.281 for fine-tuned.
+- **Simulator pretraining gives a small, consistent accuracy gain:**
+  - ~4–5% in 3 of 4 cases;
+  - reliable only at 8.5M small; the full-data gains are within noise;
+  - 28M small is worse.
+  - The best model overall is fine-tuned 8.5M on full data (0.256), 45%
+    below seasonal-naive.
+- **Some genuine transfer with no flu training:** the simulator-only model
+  beats persistence by ~17% (0.49 vs 0.59). It doesn't beat seasonal-naive
+  (0.47), because it knows nothing about flu seasons.
+- **Overconfidence is concentrated in unusual seasons.**
+  - Full data, pre-COVID seasons (2015–17): coverage 0.83–0.90.
+  - Worst seasons:
+    - **2019–20** (an early influenza B wave, then COVID from March 2020):
+      0.50–0.69;
+    - **2021–22** (a late, atypical post-COVID season): 0.40–0.63.
+  - More data raises coverage (small 0.59–0.70 → full 0.69–0.76).
+- **Fine-tuned models are better calibrated than from-scratch ones in the
+  unusual seasons** (not pre-registered).
+  - Full data, 2019–20: 0.63–0.69 vs 0.50–0.51; 2025–26: 0.65–0.69 vs
+    0.56–0.59.
+  - This holds at both sizes.
+
+**Correction of a hypothesis stated in conversation (not previously
+logged):**
+- I suggested the simulators might *cause* the overconfidence, because the
+  simulator-only model is already overconfident (0.45–0.52).
+- The rerun goes against that: fine-tuned models end up *better*
+  calibrated than from-scratch ones. The overconfidence fits better with
+  little training data plus seasons unlike the training period.
+
+**Proposed for the next datasets (not yet decided):**
+- **Keep the dense validation.** Add **early stopping**: stop once
+  validation has been worse than its best for a set number of checks.
+  From-scratch runs spend most of their 5,000 steps overfitting after
+  their best point.
+- **Possible later variant:** pretrain on other *real* epidemic data
+  (WHO FluNet, US state-level ILINet, COVID/RSV) instead of, or as well as,
+  the simulators.
