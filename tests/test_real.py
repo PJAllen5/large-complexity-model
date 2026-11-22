@@ -109,3 +109,22 @@ def test_report_beats_seasonal_check(tmp_path):
     text = pr.report(str(tmp_path), "flu")
     assert "**8.5M: FAIL**" in text and "Beats seasonal-naive: NO" in text
     assert "| 8.5M | 0.500 ± 0.000 | 0.400 ± 0.000 | 0.800 |" in text
+
+
+def test_report_coverage_by_season_and_step0(tmp_path):
+    small = str(tmp_path / "flu_small")
+    _base(small)
+    for seed in range(2):
+        for mode, crps in (("scratch", 0.5), ("finetune", 0.4)):
+            _run(small, mode, "8.5M", seed, crps)
+            path = os.path.join(small, f"{mode}_8.5M_seed{seed}.json")
+            r = json.load(open(path))
+            r["best_step"] = 25 if mode == "finetune" else 500
+            r["test"].update(window_cover90=[1.0, 0.5, 0.0], window_crps=[0.4, 0.4, 0.4])
+            r["test_forecast_start"] = [201950, 202010, 202050]          # seasons 2019, 2019, 2020
+            if mode == "finetune":
+                r["test_step0"] = dict(crps=0.7)
+            json.dump(r, open(path, "w"))
+    text = pr.report(str(tmp_path), "flu")
+    assert "| 0.700 | 0.90 | 500,500 / 25,25 |" in text      # no fine-tuning, scratch coverage, best steps
+    assert "| 2019-20 | 0.75 | 0.75 |" in text and "| 2020-21 | 0.00 | 0.00 |" in text

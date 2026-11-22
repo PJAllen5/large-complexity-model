@@ -13,6 +13,10 @@ Verdict (small-data regime, per model size), fixed before running
   beats seasonal      fine-tuned CRPS below "same time last period" (if the dataset has a period)
   calibrated          fine-tuned 90% range holds the truth 80-95% of the time
 The full-data regime is reported without a verdict.
+
+Also shown when the runs recorded them (the rerun with dense validation): the
+pretrained model's score before any fine-tuning ("no fine-tuning"), the steps at
+which validation was best, and 90% coverage by flu season of the forecast start.
 """
 
 import json
@@ -61,14 +65,36 @@ def verdict(base, modes):
     return out
 
 
+def season_of(epiweek):
+    y, w = divmod(epiweek, 100)
+    return y if w >= 40 else y - 1
+
+
+def coverage_by_season(runs):
+    """{(size, mode): {season: mean coverage over windows and seeds}} for runs with per-window data."""
+    out = {}
+    for size, modes in runs.items():
+        for mode, rs in modes.items():
+            acc = {}
+            for r in rs:
+                if "window_cover90" not in r["test"]:
+                    continue
+                for wk, c in zip(r["test_forecast_start"], r["test"]["window_cover90"]):
+                    acc.setdefault(season_of(wk), []).append(c)
+            if acc:
+                out[(size, mode)] = {k: float(np.mean(v)) for k, v in sorted(acc.items())}
+    return out
+
+
 def section(title, base, runs, with_verdict):
     lines = [f"## {title}", ""]
     if base:
         b = f"Persistence {base['persist_crps']:.3f}"
         b += f"; seasonal-naive {base['seasonal_crps']:.3f}" if "seasonal_crps" in base else ""
         lines += [f"Windows: {base['windows']}. Baselines (CRPS): {b}.", ""]
-    lines += ["| Size | From scratch | Fine-tuned | Fine-tuned / scratch | Coverage (fine-tuned) | Seeds |",
-              "|---|---|---|---|---|---|"]
+    lines += ["| Size | From scratch | Fine-tuned | Fine-tuned / scratch | Coverage (fine-tuned) | Seeds "
+              "| No fine-tuning | Coverage (scratch) | Best step scratch / fine-tuned |",
+              "|---|---|---|---|---|---|---|---|---|"]
     for size, modes in runs.items():
         cells, n = [], []
         for mode in ("scratch", "finetune"):
@@ -81,7 +107,22 @@ def section(title, base, runs, with_verdict):
         ratio = (f"{stat(modes['finetune'], 'crps')[0] / stat(modes['scratch'], 'crps')[0]:.3f}"
                  if {"scratch", "finetune"} <= set(modes) else "-")
         cov = f"{stat(modes['finetune'], 'cover90')[0]:.2f}" if "finetune" in modes else "-"
-        lines.append(f"| {size} | {cells[0]} | {cells[1]} | {ratio} | {cov} | {', '.join(n)} |")
+        s0 = [r["test_step0"]["crps"] for r in modes.get("finetune", []) if "test_step0" in r]
+        zero = f"{np.mean(s0):.3f}" if s0 else "-"
+        cov_sc = f"{stat(modes['scratch'], 'cover90')[0]:.2f}" if "scratch" in modes else "-"
+        best = " / ".join(",".join(str(r.get("best_step", "?")) for r in modes.get(m, [])) or "-"
+                          for m in ("scratch", "finetune"))
+        lines.append(f"| {size} | {cells[0]} | {cells[1]} | {ratio} | {cov} | {', '.join(n)} | {zero} | {cov_sc} "
+                     f"| {best} |")
+    seasons = coverage_by_season(runs)
+    if seasons:
+        cols = list(seasons)
+        all_s = sorted({k for v in seasons.values() for k in v})
+        lines += ["", "90% coverage by season of the forecast start (mean over windows and seeds; target 0.90):", "",
+                  "| Season | " + " | ".join(f"{sz} {m}" for sz, m in cols) + " |", "|---|" + "---|" * len(cols)]
+        for yr in all_s:
+            lines.append(f"| {yr}-{str(yr + 1)[-2:]} | "
+                         + " | ".join(f"{seasons[c][yr]:.2f}" if yr in seasons[c] else "-" for c in cols) + " |")
     if with_verdict:
         lines += ["", "### Verdict (criteria fixed before running)", ""]
         for size, modes in runs.items():

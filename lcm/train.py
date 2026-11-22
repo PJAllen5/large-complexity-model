@@ -65,7 +65,7 @@ def validation_nll(model, val_sets, precision="fp32", batch_size=64):
 
 
 def train(model, datasets, steps, batch_size=64, lr=3e-4, seed=0, warmup=200, log_every=500, tag="",
-          val=None, precision="fp32", keep_best=True, weights=None, val_log=None):
+          val=None, precision="fp32", keep_best=True, weights=None, val_log=None, eval_at=None):
     """Train `model` on `datasets` ({name: tensors}) for `steps` updates.
 
     Returns the history as (step, train_nll) tuples, or (step, train_nll, val_nll)
@@ -78,6 +78,11 @@ def train(model, datasets, steps, batch_size=64, lr=3e-4, seed=0, warmup=200, lo
     `weights` ({name: w}, optional) draws batches in proportion to w instead of
     equally. `val_log` (a list, optional) receives [step, {name: val_nll}] at every
     logged step, so per-domain validation curves can be inspected afterwards.
+
+    `eval_at` (optional) replaces the even `log_every` spacing with explicit steps,
+    e.g. dense early checks for fine-tuning. Step 0 means "before any training":
+    the starting weights are validated too and can be the ones kept. The last step
+    is always checked.
     """
     set_precision(precision)
     sampler = MixedSampler(datasets, weights)
@@ -86,8 +91,31 @@ def train(model, datasets, steps, batch_size=64, lr=3e-4, seed=0, warmup=200, lo
     sched = torch.optim.lr_scheduler.LambdaLR(
         opt, lambda s: min(1, (s + 1) / warmup) * 0.5 * (1 + math.cos(math.pi * min(s / steps, 1))))
     model.train()
-    hist, t0, run = [], time.time(), 0.0
+    hist, t0, run, last = [], time.time(), 0.0, 0
     best_val, best_state = float("inf"), None
+    checks = set(eval_at) if eval_at is not None else None
+
+    def check(step, train_nll):
+        nonlocal best_val, best_state
+        msg = f"  [{tag}] step {step:5d}  nll {train_nll:7.3f}"
+        if val:
+            per = validation_by_domain(model, val, precision)
+            v = sum(per.values()) / len(per)
+            hist.append((step, train_nll, v))
+            if val_log is not None:
+                val_log.append([step, per])
+            msg += f"  val {v:7.3f}"
+            if keep_best and v < best_val:
+                best_val = v
+                best_state = {k: t.detach().clone() for k, t in model.state_dict().items()}
+                msg += "  *best"
+        else:
+            hist.append((step, train_nll))
+        print(f"{msg}  {time.time() - t0:6.0f}s", flush=True)
+
+    if checks is not None and 0 in checks:
+        check(0, float("nan"))
+        model.train()
     for step in range(1, steps + 1):
         b = sampler(batch_size, gen)
         xn, stats = normalize(b["x"], b["ent_mask"], b["feat_mask"])
@@ -99,24 +127,10 @@ def train(model, datasets, steps, batch_size=64, lr=3e-4, seed=0, warmup=200, lo
         opt.step()
         sched.step()
         run += loss.item()
-        if step % log_every == 0 or step == steps:
-            n = log_every if step % log_every == 0 else step % log_every
-            msg = f"  [{tag}] step {step:5d}  nll {run / n:7.3f}"
-            if val:
-                per = validation_by_domain(model, val, precision)
-                v = sum(per.values()) / len(per)
-                hist.append((step, run / n, v))
-                if val_log is not None:
-                    val_log.append([step, per])
-                msg += f"  val {v:7.3f}"
-                if keep_best and v < best_val:
-                    best_val = v
-                    best_state = {k: t.detach().clone() for k, t in model.state_dict().items()}
-                    msg += "  *best"
-            else:
-                hist.append((step, run / n))
-            print(f"{msg}  {time.time() - t0:6.0f}s", flush=True)
-            run = 0.0
+        due = step in checks if checks is not None else step % log_every == 0
+        if due or step == steps:
+            check(step, run / (step - last))
+            run, last = 0.0, step
     if best_state is not None:
         model.load_state_dict(best_state)
     model.eval()

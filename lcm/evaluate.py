@@ -31,9 +31,12 @@ def _crps(samples, y):
 
 
 @torch.no_grad()
-def forecast_metrics(model, d, n_samples=32, batch=16, limit=256):
+def forecast_metrics(model, d, n_samples=32, batch=16, limit=256, per_window=False):
+    """Average forecast scores over the first `limit` episodes. With `per_window`, also
+    returns each episode's CRPS and 90% coverage (lists, in episode order)."""
     sums = dict(crps=0.0, mse=0.0, cover90=0.0, persist_crps=0.0, persist_mse=0.0)
     count = 0.0
+    win_crps, win_cover = [], []
     n = min(limit, len(d["x"]))
     for i in range(0, n, batch):
         b = {k: v[i:i + batch] for k, v in d.items()}
@@ -44,13 +47,22 @@ def forecast_metrics(model, d, n_samples=32, batch=16, limit=256):
         m = (b["ent_mask"][:, None, :, None] * b["feat_mask"][:, None, None, :]).expand_as(truth)
         q = torch.quantile(fut, torch.tensor([0.05, 0.95], device=fut.device), dim=-1)
         last = ctx[:, -1:].expand_as(truth)
-        sums["crps"] += (_crps(fut, truth) * m).sum().item()
+        c = _crps(fut, truth) * m
+        inside = ((truth >= q[0]) & (truth <= q[1])).float() * m
+        if per_window:
+            per = m.sum((1, 2, 3))
+            win_crps += (c.sum((1, 2, 3)) / per).tolist()
+            win_cover += (inside.sum((1, 2, 3)) / per).tolist()
+        sums["crps"] += c.sum().item()
         sums["mse"] += (((fut.mean(-1) - truth) ** 2) * m).sum().item()
-        sums["cover90"] += (((truth >= q[0]) & (truth <= q[1])).float() * m).sum().item()
+        sums["cover90"] += inside.sum().item()
         sums["persist_crps"] += ((last - truth).abs() * m).sum().item()
         sums["persist_mse"] += (((last - truth) ** 2) * m).sum().item()
         count += m.sum().item()
-    return {k: v / count for k, v in sums.items()}
+    out = {k: v / count for k, v in sums.items()}
+    if per_window:
+        out.update(window_crps=win_crps, window_cover90=win_cover)
+    return out
 
 
 def _to_torch(d, device):

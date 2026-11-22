@@ -24,7 +24,7 @@ source orca/stageA_settings.sh                      # for stageA_model_args
 DATASET="${DATASET:?set DATASET, e.g. DATASET=flu sbatch ...}"
 read -r -a SIZES <<< "${PHASE1_SIZES:-8.5M 28M}"
 size="${SIZES[$SLURM_ARRAY_TASK_ID]}"
-OUT="${PHASE1_OUT:-$HOME/lcm-runs/phase1}"
+OUT="${PHASE1_OUT:-$HOME/lcm-runs/phase1_v2}"   # phase1 = the first flu run (coarse validation)
 PRETRAINED="${PHASE1_PRETRAINED:-$HOME/lcm-runs/stageA_joint160k}"
 read -r -a EXTRA_ARGS <<< "${PHASE1_ARGS:-}"        # optional extra phase1.py flags (e.g. for a dry run)
 model_args="$(stageA_model_args "$size")"
