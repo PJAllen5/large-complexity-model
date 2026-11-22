@@ -1753,3 +1753,75 @@ hold):
 
 **Not tested:** real training, or the real pretrained checkpoints on ORCA
 (the job checks they exist).
+
+### 2026-11-21: Phase 1, flu result: no benefit from pretraining; overconfident forecasts
+
+**Run:** job 274490 on ORCA, 2 A30 array tasks on orcaga09. Both
+COMPLETED:
+- 8.5M in 33 min (2.7 min per run);
+- 28M in 1 h 10 min (5.7 min per run).
+
+Free. Results copied to [results_phase1/](results_phase1/), with the report
+at [results_phase1/flu_PHASE1.md](results_phase1/flu_PHASE1.md).
+
+**Headline (test CRPS, normalised units; mean of 3 seeds)**
+
+| Regime | Size | From scratch | Fine-tuned | Ratio | Coverage scratch / fine-tuned |
+|---|---|---|---|---|---|
+| small (93 windows) | 8.5M | 0.303 | 0.288 | 0.952 | 0.60 / 0.53 |
+| small | 28M | 0.309 | 0.320 | 1.035 | 0.57 / 0.46 |
+| full (511 windows) | 8.5M | 0.284 | 0.291 | 1.024 | 0.67 / 0.61 |
+| full | 28M | 0.288 | 0.309 | 1.071 | 0.68 / 0.58 |
+
+Baselines: persistence 0.593, seasonal-naive 0.469.
+
+**Pre-registered verdict:** **FAIL at both sizes.**
+- **Pretraining helps:** NO. The 8.5M ratio is 0.952, but the seed spread
+  is ±0.019, so it's within noise; 28M is 1.035.
+- **Beats persistence and seasonal-naive:** yes, by a wide margin.
+- **Calibrated:** NO (46–53%).
+
+**Findings**
+- **The architecture forecasts real flu well:** 35–40% lower CRPS than
+  "same week last year", with or without pretraining, from 3 seasons of
+  training data.
+- **No transfer benefit from the simulators.** Fine-tuned is equal within
+  noise, or slightly worse, especially with full data (up to +7% at 28M).
+  This is the dataset with the closest simulator match (epidemic).
+- **28M is no better than 8.5M** on this much data.
+- **Both kinds of model are overconfident.** The 90% range holds the truth
+  only 41–77% of the time; fine-tuned models are worse than from-scratch.
+  More data helps a little.
+
+**A flaw in the test setup found afterwards (the verdict above stands as
+recorded):**
+- Validation is checked every 250 steps (5,000 / 20).
+- **All 12 fine-tuned runs had their best validation at step 250, the
+  first check**, so their true best was probably earlier and was never
+  seen.
+- From-scratch runs peaked at 500–1,250 steps, which suits that spacing.
+- The pretrained model before any fine-tuning (step 0) wasn't evaluated
+  either.
+- So the comparison may understate what pretraining does: **it isn't a
+  clean test of transfer.**
+
+**Hypotheses (untested)**
+- **Lack of transfer:**
+  - the simulator has no seasons, reporting changes or COVID-style shocks;
+  - fine-tuning quickly overwrites what was pretrained.
+- **Overconfidence:**
+  - the test period (2015–2026, including COVID and the change in what
+    ILINet counts afterwards) differs from the validation seasons
+    (2013–2015);
+  - the models overfit to a few seasons.
+
+**Proposed follow-up (not yet decided)**
+1. **Rerun flu with a finer validation grid:**
+   - every 25 steps over the first 1,000 steps;
+   - also evaluate step 0 (pretrained, no fine-tuning);
+   - save the chosen models.
+2. **Calibration diagnostics:** coverage per test season (pre- vs
+   post-2020) for both kinds of model.
+
+About 1 GPU-h. Report it as a follow-up next to the pre-registered result,
+not in place of it.
