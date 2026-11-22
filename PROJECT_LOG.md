@@ -2109,3 +2109,79 @@ overlapping).
 - **The real `build`:** about 4 s on the laptop.
 
 **Not tested:** fetch and build on ORCA's login node.
+
+### 2026-11-22: Tycho experiment set up (part B: pretraining and fine-tuning)
+
+**Design** (all 8.5M, seeds 0–2)
+- **Pretraining variants** (`pretrain.py`, `orca/pretrain.sbatch`, 6 array
+  tasks):
+  - **tycho:** the 6 Tycho diseases, each sampled equally; up to 160k
+    steps.
+  - **simtycho:** the 8 simulators plus Tycho as a 9th system, with its 6
+    diseases sharing one system's share of each batch (1/6 each); up to
+    180k steps (9 × 20k).
+- **Both pretraining variants:** validation every 4,000 steps; early
+  stopping after 12 checks without a new best; bf16, batch 32, lr 3e-4;
+  best-validation weights saved as `checkpoints/joint.pt`.
+  - tycho validates per disease, averaged equally.
+  - simtycho pools Tycho's validation windows into one set, so it counts as
+    one system of nine.
+  - The simulator data is the Stage A data (20,000 train and 256 validation
+    episodes per system).
+- **Fine-tuning:** `orca/phase1.sbatch` with `PHASE1_VARIANTS`, all in one
+  fresh folder (`~/lcm-runs/phase1_tycho`) under the current protocol
+  (dense validation, step 0, patience 12):
+  - from scratch;
+  - fine-tuned from **sims** (the 160k Stage A joint checkpoints);
+  - fine-tuned from **tycho**;
+  - fine-tuned from **simtycho**.
+
+  Both regimes. The scratch and sims runs repeat the flu-v2 setup; patience
+  12 kept the same checkpoint in all 24 of those runs, so they should match.
+
+**Pre-registered verdict** (small-data regime, per pretraining variant):
+- **the flu criteria:**
+  - fine-tuned ≤ 0.90 × from scratch;
+  - beats persistence and seasonal-naive;
+  - 90% coverage 0.80–0.95;
+- **plus, for tycho and simtycho: lower CRPS than the sims fine-tuned
+  model** in the same run.
+
+The full-data regime is reported without a verdict.
+
+**What each outcome would mean** (as discussed):
+- **tycho beats sims:** real-world data transfers better than clean
+  simulation.
+- **simtycho beats both:** the two kinds of data are complementary.
+- **Nothing beats scratch by much:** on flu, pretraining of any kind adds
+  little.
+
+**Built**
+- **`pretrain.py`** and **`orca/pretrain.sbatch`** (an array over variant ×
+  seed).
+- **`phase1.py --pretrained <label>`:** fine-tuned results from other
+  pretraining are saved as `finetune-<label>_...`.
+- **`orca/phase1.sbatch`:** `PHASE1_VARIANTS="label=folder ..."`; it checks
+  every checkpoint exists before training.
+- **`phase1_report.py`:** one row and one verdict per pretraining variant,
+  including the "beats sims" check. Old result folders render with
+  "sims" as the label.
+
+**Tested**
+- **103/103 tests pass,** 3 new:
+  - the report comparing variants (PASS/FAIL and row order);
+  - `pretrain.py` end to end for both variants on tiny synthetic data
+    (checkpoint, weights, validation sets, skip when finished).
+- **Laptop dry run of both ORCA jobs** (tiny models, a few steps,
+  stand-ins for `module` and `nvidia-smi`):
+  - all 6 pretraining tasks;
+  - then the fine-tuning job: 13 result files per regime;
+  - the report showed one row and one verdict per variant;
+  - the recorded weights and validation sets were as designed.
+
+**Not tested:** the real runs on ORCA.
+
+**Estimated cost:**
+- pretraining up to ~1.5 h per task (6 tasks), less if it stops early;
+- fine-tuning ~1 h;
+- about 6–9 GPU-h in total. Free.

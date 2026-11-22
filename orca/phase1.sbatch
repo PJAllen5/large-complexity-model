@@ -2,8 +2,13 @@
 # Phase 1 on one real dataset: one array task per model size (index into SIZES).
 #     DATASET=flu sbatch --array=0-1 orca/phase1.sbatch          # 8.5M and 28M
 # Each task runs the baselines, then for both data regimes (small, full) and
-# seeds 0-2: a from-scratch model and the fine-tuned pretrained joint model
-# (from ~/lcm-runs/stageA_joint160k/<size>_seed<N>, the 160k-step joint runs).
+# seeds 0-2: a from-scratch model and one fine-tuned model per pretraining
+# variant. PHASE1_VARIANTS lists them as label=folder (default: sims = the
+# 160k-step simulator joint runs); each folder holds <size>_seed<N>/checkpoints/joint.pt.
+# Tycho experiment:
+#   PHASE1_OUT=~/lcm-runs/phase1_tycho PHASE1_SIZES=8.5M \
+#   PHASE1_VARIANTS="sims=$HOME/lcm-runs/stageA_joint160k tycho=$HOME/lcm-runs/pretrain_tycho simtycho=$HOME/lcm-runs/pretrain_simtycho" \
+#   DATASET=flu sbatch --array=0 orca/phase1.sbatch
 # Finished runs are skipped, so resubmitting only does what's left.
 #SBATCH --job-name=lcm-phase1
 #SBATCH --partition=short
@@ -26,6 +31,7 @@ read -r -a SIZES <<< "${PHASE1_SIZES:-8.5M 28M}"
 size="${SIZES[$SLURM_ARRAY_TASK_ID]}"
 OUT="${PHASE1_OUT:-$HOME/lcm-runs/phase1_v2}"   # phase1 = the first flu run (coarse validation)
 PRETRAINED="${PHASE1_PRETRAINED:-$HOME/lcm-runs/stageA_joint160k}"
+read -r -a VARIANTS <<< "${PHASE1_VARIANTS:-sims=$PRETRAINED}"
 read -r -a EXTRA_ARGS <<< "${PHASE1_ARGS:-}"        # optional extra phase1.py flags (e.g. for a dry run)
 model_args="$(stageA_model_args "$size")"
 
@@ -35,14 +41,19 @@ git log --oneline -1 || echo "(git version unavailable)"
 for regime in small full; do
     .venv/bin/python -u phase1.py --dataset "$DATASET" --regime "$regime" --mode baselines --out "$OUT"
     for seed in 0 1 2; do
-        init="$PRETRAINED/${size}_seed${seed}/checkpoints/joint.pt"
-        [ -f "$init" ] || { echo "!! missing pretrained checkpoint $init"; exit 1; }
-        for mode in scratch finetune; do
-            extra=(); [ "$mode" = finetune ] && extra=(--init "$init")
+        for v in "${VARIANTS[@]}"; do                  # check every checkpoint before training anything
+            init="${v#*=}/${size}_seed${seed}/checkpoints/joint.pt"
+            [ -f "$init" ] || { echo "!! missing pretrained checkpoint $init (${v%%=*})"; exit 1; }
+        done
+        # shellcheck disable=SC2086
+        .venv/bin/python -u phase1.py --dataset "$DATASET" --regime "$regime" --mode scratch --seed "$seed" \
+            --size "$size" $model_args --precision bf16 --out "$OUT" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
+        for v in "${VARIANTS[@]}"; do
             # shellcheck disable=SC2086
-            .venv/bin/python -u phase1.py --dataset "$DATASET" --regime "$regime" --mode "$mode" --seed "$seed" \
+            .venv/bin/python -u phase1.py --dataset "$DATASET" --regime "$regime" --mode finetune --seed "$seed" \
                 --size "$size" $model_args --precision bf16 --out "$OUT" \
-                ${extra[@]+"${extra[@]}"} ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
+                --init "${v#*=}/${size}_seed${seed}/checkpoints/joint.pt" --pretrained "${v%%=*}" \
+                ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
         done
     done
 done
