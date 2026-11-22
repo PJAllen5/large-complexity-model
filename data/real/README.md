@@ -7,6 +7,7 @@ format choices, measurement quirks, baselines), filled in from
 | Dataset | Card |
 |---|---|
 | US flu | [flu_CARD.md](flu_CARD.md) |
+| Project Tycho (pretraining only; not in the repo) | [tycho_CARD.md](tycho_CARD.md) |
 
 ## flu_hhs_wili.csv
 
