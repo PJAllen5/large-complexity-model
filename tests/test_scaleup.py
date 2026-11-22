@@ -73,12 +73,62 @@ def test_keep_best_restores_lowest_validation_weights(monkeypatch):
 
     def fake_validation(model, val, precision="fp32"):
         snapshots.append(torch.cat([p.detach().flatten().clone() for p in model.parameters()]))
-        return next(scores)
+        return {"unused": next(scores)}
 
-    monkeypatch.setattr(T, "validation_nll", fake_validation)
+    monkeypatch.setattr(T, "validation_by_domain", fake_validation)
     torch.manual_seed(0)
     m = LCM(d=64, layers=2, heads=2)
     hist = T.train(m, _sets(), 8, batch_size=4, seed=0, log_every=2, val={"unused": None})
     final = torch.cat([p.detach().flatten() for p in m.parameters()])
     assert [h[2] for h in hist] == [1.0, 0.5, 0.9, 1.2]
     assert torch.equal(final, snapshots[1]) and not torch.equal(final, snapshots[3])
+
+
+def _counts(sampler, n_batches=200, batch=50):
+    """How many sampled episodes came from each domain (matched by content)."""
+    gen = torch.Generator().manual_seed(0)
+    out = dict.fromkeys(sampler.datasets, 0)
+    for _ in range(n_batches):
+        b = sampler(batch, gen)
+        for n, d in sampler.datasets.items():
+            out[n] += sum(any(torch.equal(x, y) for y in d["x"]) for x in b["x"])
+    assert sum(out.values()) == n_batches * batch
+    return out
+
+
+def test_weighted_sampler_draws_in_proportion():
+    from lcm.data import MixedSampler
+    sets = _sets(n=4)
+    c = _counts(MixedSampler(sets, {"epidemic": 3.0}), n_batches=40)
+    assert 2.4 < c["epidemic"] / c["boids"] < 3.7                  # expected 3.0
+
+
+def test_unweighted_sampler_is_unchanged():
+    """No weights must give exactly the old random draws, so earlier runs stay reproducible."""
+    from lcm.data import MixedSampler
+    sets = _sets(n=4)
+    gen = torch.Generator().manual_seed(1)
+    which = torch.randint(2, (16,), generator=gen)               # the old implementation's first draw
+    expected_epidemic = int((which == 1).sum())
+    b = MixedSampler(sets)(16, torch.Generator().manual_seed(1))
+    n_epi = sum(any(torch.equal(x, y) for y in sets["epidemic"]["x"]) for x in b["x"])
+    assert n_epi == expected_epidemic
+
+
+def test_bad_weights_are_refused():
+    from lcm.data import MixedSampler
+    with pytest.raises(ValueError):
+        MixedSampler(_sets(n=2), {"nbody": 2.0})
+    with pytest.raises(ValueError):
+        MixedSampler(_sets(n=2), {"boids": 0.0})
+
+
+def test_val_log_records_every_domain():
+    import lcm.train as T
+    torch.manual_seed(0)
+    sets = _sets(n=4)
+    log = []
+    hist = T.train(LCM(d=32, layers=1, heads=2), sets, 4, batch_size=4, seed=0, log_every=2,
+                   val=_sets(n=2, seed=50), val_log=log)
+    assert [s for s, _ in log] == [2, 4] and set(log[0][1]) == {"boids", "epidemic"}
+    assert hist[0][2] == pytest.approx(sum(log[0][1].values()) / 2)   # the average is still what keep_best uses

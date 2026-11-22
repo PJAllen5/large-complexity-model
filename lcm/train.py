@@ -38,12 +38,12 @@ def autocast_for(precision, device):
 
 
 @torch.no_grad()
-def validation_nll(model, val_sets, precision="fp32", batch_size=64):
-    """Average next-patch NLL on held-out validation episodes, each domain weighted equally."""
+def validation_by_domain(model, val_sets, precision="fp32", batch_size=64):
+    """Next-patch NLL on held-out validation episodes, per domain ({name: nll})."""
     was_training = model.training
     model.eval()
-    per_domain = []
-    for d in val_sets.values():
+    per_domain = {}
+    for name, d in val_sets.items():
         dev = d["x"].device
         losses, counts = 0.0, 0
         for i in range(0, len(d["x"]), batch_size):
@@ -53,13 +53,19 @@ def validation_nll(model, val_sets, precision="fp32", batch_size=64):
                 loss = model.loss(xn, b["ent_mask"], b["feat_mask"], b["adj"], stats)
             losses += loss.item() * len(b["x"])
             counts += len(b["x"])
-        per_domain.append(losses / counts)
+        per_domain[name] = losses / counts
     model.train(was_training)
-    return sum(per_domain) / len(per_domain)
+    return per_domain
+
+
+def validation_nll(model, val_sets, precision="fp32", batch_size=64):
+    """Average next-patch NLL on held-out validation episodes, each domain weighted equally."""
+    per_domain = validation_by_domain(model, val_sets, precision, batch_size)
+    return sum(per_domain.values()) / len(per_domain)
 
 
 def train(model, datasets, steps, batch_size=64, lr=3e-4, seed=0, warmup=200, log_every=500, tag="",
-          val=None, precision="fp32", keep_best=True):
+          val=None, precision="fp32", keep_best=True, weights=None, val_log=None):
     """Train `model` on `datasets` ({name: tensors}) for `steps` updates.
 
     Returns the history as (step, train_nll) tuples, or (step, train_nll, val_nll)
@@ -68,9 +74,13 @@ def train(model, datasets, steps, batch_size=64, lr=3e-4, seed=0, warmup=200, lo
 
     With `val` and `keep_best`, the model ends with the weights from the logged
     step that had the lowest validation NLL ("early stopping"), not the last step.
+
+    `weights` ({name: w}, optional) draws batches in proportion to w instead of
+    equally. `val_log` (a list, optional) receives [step, {name: val_nll}] at every
+    logged step, so per-domain validation curves can be inspected afterwards.
     """
     set_precision(precision)
-    sampler = MixedSampler(datasets)
+    sampler = MixedSampler(datasets, weights)
     gen = torch.Generator().manual_seed(seed)
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
     sched = torch.optim.lr_scheduler.LambdaLR(
@@ -93,8 +103,11 @@ def train(model, datasets, steps, batch_size=64, lr=3e-4, seed=0, warmup=200, lo
             n = log_every if step % log_every == 0 else step % log_every
             msg = f"  [{tag}] step {step:5d}  nll {run / n:7.3f}"
             if val:
-                v = validation_nll(model, val, precision)
+                per = validation_by_domain(model, val, precision)
+                v = sum(per.values()) / len(per)
                 hist.append((step, run / n, v))
+                if val_log is not None:
+                    val_log.append([step, per])
                 msg += f"  val {v:7.3f}"
                 if keep_best and v < best_val:
                     best_val = v

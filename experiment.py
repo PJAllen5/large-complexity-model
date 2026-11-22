@@ -46,6 +46,9 @@ p.add_argument("--only", default=None,
                help="comma-separated tasks to run: joint, specialist_<system>, transfer_<system> "
                     "(transfer = never-seen-it, then fine-tune and from-scratch on that held-out system)")
 p.add_argument("--report-only", action="store_true", help="write the report from finished runs, train nothing")
+p.add_argument("--system-weights", default=None,
+               help="joint model only: sample some systems more often, e.g. nbody=2.5,epidemic=2.5 "
+                    "(others count as 1)")
 for name, kind in [("steps", int), ("batch", int), ("lr", float), ("n_train", int), ("n_val", int),
                    ("few_shot_eps", int), ("few_shot_steps", int)]:
     p.add_argument(f"--{name.replace('_', '-')}", type=kind, default=None, dest=name)
@@ -60,6 +63,15 @@ CFG.update(batch=32, lr=3e-4, n_val=0)
 CFG.update({k: getattr(args, k) for k in ["steps", "batch", "lr", "n_train", "n_val", "few_shot_eps", "few_shot_steps"]
             if getattr(args, k) is not None})
 MODEL = dict(d=args.d, layers=args.layers, heads=args.heads)
+WEIGHTS = None
+if args.system_weights:
+    try:
+        WEIGHTS = {k: float(v) for k, v in (kv.split("=") for kv in args.system_weights.split(","))}
+    except ValueError:
+        sys.exit(f"--system-weights must look like nbody=2.5,epidemic=2.5 (got {args.system_weights!r})")
+    bad = [k for k, w in WEIGHTS.items() if k not in DOMAINS or w <= 0]
+    if bad:
+        sys.exit(f"--system-weights: unknown system or non-positive weight: {bad}; systems are {DOMAINS}")
 
 dev = get_device()
 RUNS, CKPT = os.path.join(args.out, "runs"), os.path.join(args.out, "checkpoints")
@@ -69,7 +81,7 @@ for d in (RUNS, CKPT):
 
 # Finished runs are cached by name, so never mix runs made with different settings
 # in one folder: record the settings and refuse to continue if they differ.
-SETTINGS = dict(cfg=CFG, model=MODEL, seed=args.seed, precision=args.precision)
+SETTINGS = dict(cfg=CFG, model=MODEL, seed=args.seed, precision=args.precision, weights=WEIGHTS)
 cfg_path = os.path.join(args.out, "config.json")
 if os.path.exists(cfg_path):
     old = json.load(open(cfg_path))
@@ -111,7 +123,7 @@ def evaluate(model, domains):
     return out
 
 
-def run(tag, domains_train, domains_eval, steps, data=None, init=None, seed=args.seed):
+def run(tag, domains_train, domains_eval, steps, data=None, init=None, seed=args.seed, weights=None):
     """Train a model (or load it if done) and evaluate. Cached by tag."""
     path = os.path.join(RUNS, f"{tag}.json")
     ck = os.path.join(CKPT, f"{tag}.pt")
@@ -123,24 +135,29 @@ def run(tag, domains_train, domains_eval, steps, data=None, init=None, seed=args
     model = LCM(**MODEL).to(dev)
     if init:
         model.load_state_dict(torch.load(os.path.join(CKPT, f"{init}.pt"), map_location=dev))
-    hist = []
+    hist, val_log = [], []
     if steps:
         data = data or {n: train_sets[n] for n in domains_train}
         val = {n: val_sets[n] for n in data} if val_sets else None
         hist = train(model, data, steps, batch_size=CFG["batch"], seed=seed, log_every=max(steps // 20, 1),
-                     tag=tag, lr=1e-4 if init else CFG["lr"], val=val, precision=args.precision)
+                     tag=tag, lr=1e-4 if init else CFG["lr"], val=val, precision=args.precision,
+                     weights=weights, val_log=val_log)
     save_atomic(lambda f: torch.save(model.state_dict(), f), ck)
     # with validation on, train() keeps the weights from the best-validation step
     best_step = min((h for h in hist if len(h) == 3), key=lambda h: h[2], default=(None,))[0]
     res = dict(tag=tag, trained_on=domains_train, steps=steps, seed=seed, best_step=best_step, loss=hist,
                eval=evaluate(model, domains_eval))
+    if val_log:
+        res["val_by_system"] = val_log                 # [[step, {system: val_nll}], ...]
+    if weights:
+        res["weights"] = weights
     save_atomic(lambda f: json.dump(res, open(f, "w")), path)
     return res
 
 
 def run_task(task):
     if task == "joint":                                   # one model, every system
-        run("joint", DOMAINS, DOMAINS, CFG["steps"])
+        run("joint", DOMAINS, DOMAINS, CFG["steps"], weights=WEIGHTS)
     elif task.startswith("specialist_"):                  # one system only, same budget
         n = task[len("specialist_"):]
         run(task, [n], [n], CFG["steps"])

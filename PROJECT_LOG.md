@@ -1543,3 +1543,91 @@ can be used.
 - **8.5M:** ~5 h per run on an A30. **28M:** ~11 h, which needs the
   `normal` partition (1-day limit).
 - ~47 GPU-h in total.
+
+### 2026-11-21: n-body / epidemic test set up (two joint arms at 8.5M)
+
+**Context:** at 28M the joint model matches 160k-step specialists on 6 of
+8 systems. The remaining gap is n-body (1.31) and epidemic (1.11).
+**Hypothesis:** those two get too little training inside the joint model.
+- Each system gets ~20k steps' worth of the joint model's 160k.
+- The n-body and epidemic specialists kept improving until 88k–160k steps.
+
+**Options discussed with PJ:**
+1. two cheap arms at 8.5M, then move to Phase 1;
+2. skip the test and start Phase 1 planning;
+3. a 640k-step joint model at 8.5M and 28M (~47 GPU-h, 11 h jobs with no
+   resume).
+
+**Decision (PJ): option 1.**
+
+**Design** (8.5M, seeds 0–2, everything else as Stage A; compared with the
+160k-step specialists and with the 160k joint model)
+- **Arm A, longer:** joint at **640k steps** (~80k per system).
+  - ~5.1 h per run on an A30, so it uses the `normal` partition with a 7 h
+    limit.
+  - Results in `~/lcm-runs/stageA_joint640k`.
+- **Arm B, reweighted:** joint at 160k steps, with **n-body and epidemic
+  sampled 2.5× as often**.
+  - Their batch share goes from 12.5% to ~22.7% each; the other six drop
+    from 12.5% to ~9.1%.
+  - Results in `~/lcm-runs/stageA_jointw160k`.
+- **Cost:** ~19 GPU-h, ~5.2 h of waiting (both arms at once, 6 A30s).
+
+**Pre-registered hypothesis check** (per arm; gaps against the 160k
+specialists, "before" = the 160k joint model at 8.5M: n-body 1.36,
+epidemic 1.11)
+- **Supported:** n-body gap below 1.15 **and** epidemic below 1.05, **and**
+  no other system's gap more than 0.03 above its 160k-joint value.
+- **Rejected:** the n-body and epidemic gaps each fall by less than 0.05.
+- **Mixed:** anything else.
+- If rejected in both arms, the next suspects are interference between
+  systems, or the data format and normalization for n-body and epidemic.
+
+**Built**
+- **Per-system validation logging:**
+  - `train(..., val_log=[])` records each system's validation NLL at every
+    logged step;
+  - `experiment.py` saves it as `val_by_system` in every run file;
+  - the best-checkpoint rule still uses the average, as before.
+- **Weighted sampling:**
+  - `MixedSampler(datasets, weights)` and `experiment.py
+    --system-weights nbody=2.5,epidemic=2.5`, applied to the joint model
+    only;
+  - recorded in `config.json`, so the settings guard refuses to mix
+    weighted and unweighted runs in one folder;
+  - **without weights the random draws are identical to before,** so
+    earlier runs stay reproducible;
+  - unknown systems and non-positive weights are refused.
+- **Submit script:**
+  - modes `--joint-640k` and `--joint-weighted`;
+  - a `PARTITION` setting (`normal` for the 640k arm);
+  - `STAGEA_WEIGHTS` reaches every job through `orca/stageA_settings.sh`.
+- **`orca/convergence_report.py`:**
+  - `--compare-joint` adds the hypothesis check and the per-system gaps
+    before and after;
+  - a table of the step where each system's validation NLL was best;
+  - `--out` chooses where `CONVERGENCE.md` is written;
+  - the title changed to "Joint models vs 160k-step specialists"
+    (it said "equal training", the wording corrected earlier today).
+
+**Tested**
+- **78/78 tests pass**, with 11 new ones:
+  - weighted draws in proportion (3× weight → ~3× draws);
+  - unweighted draws unchanged from the old code;
+  - bad weights refused;
+  - per-system validation log contents;
+  - both submit modes (partition, time limit, weights reaching the jobs);
+  - the hypothesis check (supported, rejected, mixed);
+  - the report with `--compare-joint`, `--out` and validation peaks.
+- **Two tests were updated:**
+  - the early-stopping test now stubs the per-system validation function;
+  - the 28M submit test's expected `sbatch` arguments now include the
+    partition.
+- **Tiny end-to-end run on the laptop:** a weighted joint run saved its
+  weights and 20 per-system validation entries; the report rendered every
+  section; a misspelled system was refused; and the guard refused to reuse
+  a weighted folder without weights.
+- **Old result folders** (config without `weights`) are still accepted.
+  A step-display bug ("0k" for steps under 1,000) was found and fixed.
+
+**Not tested:** the real runs on ORCA, or queue times on `normal`.

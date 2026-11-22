@@ -362,6 +362,52 @@ sacct -j <A30 array id> --format=JobID,State,Elapsed -X | grep -v COMPLETED
 .venv/bin/python orca/convergence_report.py
 ```
 
+## 14. Why do n-body and epidemic lag? Two joint-model tests at 8.5M
+
+At 28M the joint model matches the specialists on 6 of 8 systems; n-body
+and epidemic make up the gap. The hypothesis is that they get too little
+training inside the joint model. Two arms, both 8.5M, 3 seeds, on A30s:
+
+- **A: 640k steps** (4x, ~80k per system). ~5.1 h per run, so it runs on the
+  `normal` partition (1-day limit) with a 7 h task limit.
+- **B: 160k steps, n-body and epidemic sampled 2.5x as often.** ~1.3 h per run.
+
+Both now record validation NLL per system during training. They can run at
+the same time (6 A30s):
+
+```bash
+git pull
+```
+
+```bash
+bash orca/stageA_submit.sh --joint-640k
+```
+
+```bash
+bash orca/stageA_submit.sh --joint-weighted
+```
+
+They should print `Unfinished tasks: 3 on A30, 0 on L40S (... 640000 steps,
+partition normal)` and `(... 160000 steps, partition short, weights
+nbody=2.5,epidemic=2.5)`. When `squeue -u $USER` is empty, check for
+failures, then run one report per arm:
+
+```bash
+sacct -j <640k array id>,<weighted array id> --format=JobID,State,Elapsed -X | grep -v COMPLETED
+```
+
+```bash
+.venv/bin/python orca/convergence_report.py --joint ~/lcm-runs/stageA_joint640k --compare-joint ~/lcm-runs/stageA_joint160k --out ~/lcm-runs/stageA_joint640k
+```
+
+```bash
+.venv/bin/python orca/convergence_report.py --joint ~/lcm-runs/stageA_jointw160k --compare-joint ~/lcm-runs/stageA_joint160k --out ~/lcm-runs/stageA_jointw160k
+```
+
+**Paste both reports to Claude.** Each has the pre-registered hypothesis
+check, per-system gaps next to the 160k joint model, and the step where
+each system's validation NLL was best.
+
 ---
 
 ## Troubleshooting

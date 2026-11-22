@@ -7,7 +7,17 @@
 Joint models come from --joint, the 160k-step specialists from --specialists.
 The 20k-step specialists (--specialists-20k, optional) show how much the
 specialists gained from the extra training. Writes CONVERGENCE.md into the
---specialists folder and prints it.
+--specialists folder (or --out) and prints it.
+
+For a follow-up joint model (640k steps, or weighted sampling), pass the 160k
+joint folder as --compare-joint to add the n-body / epidemic hypothesis check
+(PROJECT_LOG.md, 2026-11-21), fixed before running, per size:
+  supported   n-body gap below 1.15 and epidemic below 1.05, and no other
+              system's gap more than 0.03 above the 160k joint model's
+  rejected    n-body and epidemic gaps each fall by less than 0.05
+  mixed       anything else
+    python orca/convergence_report.py --joint ~/lcm-runs/stageA_joint640k \
+        --compare-joint ~/lcm-runs/stageA_joint160k --out ~/lcm-runs/stageA_joint640k
 
 Gap = joint CRPS / specialist CRPS, geometric mean over the 8 systems (as in
 scaling_report.py). Verdict per size, fixed before running (PROJECT_LOG.md,
@@ -24,9 +34,11 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from scaling_report import SYSTEMS, combine, crps, load_root, mean_sd, summarize  # noqa: E402
-from val_curves import assess, curve  # noqa: E402
+from val_curves import _step, assess, curve  # noqa: E402
 
 WIN, LOSE = 0.97, 1.03
+TARGET = {"nbody": 1.15, "epidemic": 1.05}   # hypothesis check: gaps to get below
+OTHERS_SLACK, MOVE = 0.03, 0.05
 
 
 def verdict(g):
@@ -35,6 +47,31 @@ def verdict(g):
     if g <= LOSE:
         return "TIE"
     return "SPECIALISTS WIN"
+
+
+def hypothesis_check(new, base):
+    """new, base: {system: gap}. Returns (outcome, explanation) for one size."""
+    hard = {s: (base[s], new[s]) for s in TARGET}
+    worse = [s for s in SYSTEMS if s not in TARGET and new[s] - base[s] > OTHERS_SLACK]
+    detail = ", ".join(f"{s} {b:.2f} -> {n:.2f}" for s, (b, n) in hard.items())
+    if all(n < TARGET[s] for s, (_, n) in hard.items()) and not worse:
+        return "SUPPORTED", detail
+    if all(b - n < MOVE for b, n in hard.values()):
+        return "REJECTED", detail + "; both fell by less than 0.05"
+    extra = f"; worse by more than {OTHERS_SLACK}: {', '.join(worse)}" if worse else ""
+    return "MIXED", detail + extra
+
+
+def val_peaks(seeds):
+    """{system: [best step per seed]} from the joint runs' per-system validation logs."""
+    out = {}
+    for runs in seeds.values():
+        log = runs.get("joint", {}).get("val_by_system")
+        if not log:
+            continue
+        for s in log[0][1]:
+            out.setdefault(s, []).append(min(log, key=lambda e: e[1][s])[0])
+    return out
 
 
 def specialist_gain(long_data, short_data):
@@ -67,8 +104,8 @@ def curve_states(seeds):
     return over, improving, total
 
 
-def report(joint_root, spec_root, short_root=None):
-    for folder in (joint_root, spec_root, short_root):
+def report(joint_root, spec_root, short_root=None, compare_joint=None, out=None):
+    for folder in (joint_root, spec_root, short_root, compare_joint):
         if folder and not os.path.isdir(folder):
             sys.exit(f"No such results folder: {folder}")
     spec = load_root(spec_root)
@@ -77,8 +114,9 @@ def report(joint_root, spec_root, short_root=None):
         sys.exit(f"No seeds with both a joint run in {joint_root} and specialists in {spec_root}")
     old = summarize(combine(load_root(joint_root), load_root(short_root))) if short_root else {}
     gain = specialist_gain(spec, load_root(short_root)) if short_root else {}
+    base = summarize(combine(load_root(compare_joint), spec)) if compare_joint else {}
 
-    lines = ["# Joint vs specialists at equal training (160k steps each)", "",
+    lines = ["# Joint models vs 160k-step specialists", "",
              f"Joint models from `{joint_root}`; 160k-step specialists from `{spec_root}`"
              + (f"; 20k-step specialists from `{short_root}`." if short_root else "."),
              "Gap = joint / specialist CRPS, geometric mean over 8 systems (below 1 = joint better).", "",
@@ -99,11 +137,34 @@ def report(joint_root, spec_root, short_root=None):
             row += f" {mean_sd(og.values())[0]:.3f} |" if og else " - |"
         lines.append(row)
 
-    lines += ["", "## Gap per system (mean over seeds)", "", "| System | " + " | ".join(s) + " |",
-              "|---|" + "---|" * len(s)]
+    if base:
+        lines += ["", "## n-body / epidemic hypothesis check (criteria fixed before running)", "",
+                  f"Compared with the joint model in `{compare_joint}`.", "",
+                  "| Size | Result | Detail |", "|---|---|---|"]
+        for size, x in s.items():
+            if x["gaps"] and base.get(size, {}).get("gaps"):
+                outcome, detail = hypothesis_check(x["per_system"], base[size]["per_system"])
+                lines.append(f"| {size} | **{outcome}** | {detail} |")
+            else:
+                lines.append(f"| {size} | NOT YET | needs complete seeds in both joint folders |")
+
+    cols = [(size, x["per_system"]) for size, x in s.items()]
+    if base:
+        cols = [c for size, x in s.items()
+                for c in ((f"{size} base", base.get(size, {}).get("per_system", {})), (size, x["per_system"]))]
+    lines += ["", "## Gap per system (mean over seeds)", "", "| System | " + " | ".join(c for c, _ in cols) + " |",
+              "|---|" + "---|" * len(cols)]
     for name in SYSTEMS:
-        lines.append(f"| {name} | " + " | ".join(f"{x['per_system'].get(name, float('nan')):.2f}"
-                                                for x in s.values()) + " |")
+        lines.append(f"| {name} | " + " | ".join(f"{g.get(name, float('nan')):.2f}" for _, g in cols) + " |")
+
+    peaks = {size: val_peaks(seeds) for size, seeds in load_root(joint_root).items()}
+    peaks = {k: v for k, v in peaks.items() if v}
+    if peaks:
+        lines += ["", "## Joint model: step of best validation NLL per system (seeds)", "",
+                  "| System | " + " | ".join(peaks) + " |", "|---|" + "---|" * len(peaks)]
+        for name in SYSTEMS:
+            lines.append(f"| {name} | " + " | ".join(
+                ", ".join(_step(st) for st in p.get(name, [])) or "-" for p in peaks.values()) + " |")
 
     if gain:
         lines += ["", "## How much the specialists gained from 8x training",
@@ -121,9 +182,10 @@ def report(joint_root, spec_root, short_root=None):
     lines.append("\n*Validation NLL rose more than 0.05 after its best point; the best checkpoint was used anyway.")
 
     text = "\n".join(lines) + "\n"
-    open(os.path.join(spec_root, "CONVERGENCE.md"), "w").write(text)
+    out = out or spec_root
+    open(os.path.join(out, "CONVERGENCE.md"), "w").write(text)
     print(text)
-    print(f"Written: {spec_root}/CONVERGENCE.md")
+    print(f"Written: {out}/CONVERGENCE.md")
     return s
 
 
@@ -135,5 +197,8 @@ if __name__ == "__main__":
     p.add_argument("--specialists", default=os.path.join(home, "stageA_spec160k"))
     p.add_argument("--specialists-20k", default=os.path.join(home, "stageA_n20k"),
                    help="20k-step specialists, to show how much they gained ('' to skip)")
+    p.add_argument("--compare-joint", default=None,
+                   help="baseline joint folder (the 160k runs): adds the n-body / epidemic hypothesis check")
+    p.add_argument("--out", default=None, help="folder for CONVERGENCE.md (default: --specialists)")
     a = p.parse_args()
-    report(a.joint, a.specialists, a.specialists_20k or None)
+    report(a.joint, a.specialists, a.specialists_20k or None, a.compare_joint, a.out)
