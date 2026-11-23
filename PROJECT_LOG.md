@@ -2276,3 +2276,104 @@ simtycho 0.255 (0.957), tycho 0.240 (0.900). Coverage 0.76 / 0.70 / 0.78.
   - The flu test coverage has now been seen, so a fix should be judged on a
     dataset it wasn't tuned on.
 - No 28M runs with Tycho pretraining.
+
+### 2026-11-22: Neurons (Allen Brain Observatory) set up: Phase 1 dataset 2
+
+**Decision (PJ):** move on to neurons, the next Phase 1 dataset. The other
+option was gentler fine-tuning to fix the overconfidence. Neurons is the first
+real dataset that isn't an epidemic, so it tests transfer across fields.
+
+**Licence and access (checked before downloading)**
+- **Terms:** Allen Institute Terms of Use (page dated 2026-10-23). Research and
+  other non-commercial use, copying, distribution and derived works are allowed,
+  with citation. Commercial use needs written permission.
+- **No data goes in the public repo.** Derived files aren't clearly forbidden,
+  but the terms don't say, so the data stays on ORCA.
+- **Access:** public AWS bucket, no account. 1,518 recordings from 271 mice,
+  6 visual areas, 3 session types (506 of type A). NWB files are about
+  97–814 MB (median about 280 MB).
+
+**Inspection** (PJ approved downloading the smallest file, experiment
+593506468, 97 MB, to the laptop's scratch folder, not the repo):
+- ΔF/F is at `processing/brain_observatory_pipeline/DfOverF/imaging_plane_1/data`,
+  shape [cells, frames]. h5py reads it directly; the AllenSDK isn't needed.
+- 30.1 Hz, 68.7 min, 124,368 frames. No gaps, no missing values.
+- Median ΔF/F 0.01, top 1% above 2.9: spiky.
+- **It had only 1 neuron,** so file size doesn't predict neuron count. Hence
+  the 12-neuron minimum below.
+- The neuron count per recording is only in a 461 MB metadata file, so the
+  fetch reads it from each downloaded recording instead.
+
+**Design (decided before any training; PJ approved as proposed)**
+- Session type A only (the same stimuli for every recording), one recording
+  per mouse, in a fixed shuffled order (seed 0).
+- Recordings with fewer than 12 neurons are skipped (also any missing from
+  the bucket). 12 neurons per recording, picked at random with the recording
+  id as the seed.
+- 4 frames averaged: about 7.5 Hz, so a window is 8.5 s (6.4 s history,
+  2.1 s forecast).
+- All 12 neurons linked (the wiring isn't known).
+- **Split by mouse:** the first 30 usable recordings train, the next 5
+  validate, the next 10 test.
+- **Windows:** training every 16 steps; validation and test every 256.
+- **Small regime:** 25 evenly spaced windows from each of the first 4 training
+  recordings (100 windows).
+- **Baselines:** persistence, and the **history mean** (each neuron's mean
+  over its 48-step history) in place of seasonal-naive, since neurons have no
+  period. The history mean is a fairer simple rival for spiky activity.
+- **Compared:** from scratch, and fine-tuned from sims, tycho (dense) and
+  simtycho. 8.5M, seeds 0–2, both regimes, the current protocol (dense
+  validation, step 0, patience 12).
+
+**Pre-registered verdict** (small-data regime, per pretraining variant; all
+must hold):
+- fine-tuned ≤ 0.90 × from scratch;
+- beats persistence;
+- **beats the history mean** (replaces "beats seasonal-naive");
+- 90% coverage 0.80–0.95;
+- for tycho and simtycho: lower CRPS than the sims fine-tuned model.
+
+The full-data regime is reported without a verdict.
+
+**What each outcome would mean**
+- **tycho helps:** epidemic data transfers to a completely different field,
+  the first evidence for the cross-domain idea.
+- **only sims helps:** the simulators' model neurons (FitzHugh–Nagumo) carry
+  something real neurons share.
+- **nothing helps:** so far, transfer works only between closely related data.
+
+**Built**
+- **`lcm/neurons.py`:** chooses recordings, streams each NWB file (checking the
+  byte count), keeps 12 neurons' traces, deletes the file. Resumable; progress
+  and the chosen ids go to `neurons_summary.json`. Builds windows per split.
+- **`phase1.py`:** accepts datasets made of separate recordings (prebuilt
+  windows per split). Computes the history-mean baseline when a dataset has
+  no period. Records each test window's recording (`test_group`).
+- **`phase1_report.py`:** the "beats the history mean" check, and coverage by
+  test recording in place of by season. Committed flu reports regenerate
+  unchanged except the title (no longer says "8 simulated systems").
+- **`data/real/neurons_CARD.md`**, and `h5py` added to `requirements.txt`.
+
+**Tested**
+- **110 tests pass, 7 new** (synthetic NWB-like files):
+  - cell choice and frame averaging;
+  - one session-A recording per mouse;
+  - fetch: split order, skips, deleting files, resuming without downloading;
+  - stopping when too few recordings are usable;
+  - recordings missing from the bucket;
+  - window strides and the small regime;
+  - the report's history-mean check and per-recording coverage.
+- **One more test reads a real Allen file** when `LCM_NWB_SAMPLE` is set. It
+  passed on the downloaded 593506468 (1 neuron, so correctly skipped).
+- **Laptop dry run on synthetic recordings:** baselines, scratch and
+  fine-tuning (tiny model, 30 steps) in both regimes, then the report with
+  verdicts and coverage by recording.
+
+**Not tested**
+- Fetching on ORCA, and a real recording with 12 or more neurons (only the
+  1-neuron file was inspected).
+- Real training.
+
+**Estimated cost:** the fetch takes roughly 15 GB of downloads, deleted as it
+goes. Fine-tuning is roughly 30–60 min on an A30: more windows than flu, but
+patience should stop runs early. Free.

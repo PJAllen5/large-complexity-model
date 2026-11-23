@@ -11,6 +11,7 @@ Verdict (small-data regime, per model size), fixed before running
   pretraining helps   fine-tuned CRPS at least 10% below from-scratch (mean over seeds)
   beats persistence   fine-tuned CRPS below "same as last step"
   beats seasonal      fine-tuned CRPS below "same time last period" (if the dataset has a period)
+  beats history mean  fine-tuned CRPS below each entity's mean over its history (if it has none; neurons)
   calibrated          fine-tuned 90% range holds the truth 80-95% of the time
 The full-data regime is reported without a verdict.
 
@@ -75,6 +76,8 @@ def verdict(base, modes, key="finetune"):
            ("Beats persistence", ft < base["persist_crps"], f"{ft:.3f} vs {base['persist_crps']:.3f}")]
     if "seasonal_crps" in base:
         out.append(("Beats seasonal-naive", ft < base["seasonal_crps"], f"{ft:.3f} vs {base['seasonal_crps']:.3f}"))
+    if "mean_crps" in base:                # datasets with no period (neurons; PROJECT_LOG 2026-11-22)
+        out.append(("Beats the history mean", ft < base["mean_crps"], f"{ft:.3f} vs {base['mean_crps']:.3f}"))
     out.append(("Calibrated (90% range holds truth 80-95%)", COVER[0] <= cov <= COVER[1], f"{cov:.2f}"))
     if key != "finetune":
         if "finetune" not in modes:
@@ -89,17 +92,25 @@ def season_of(epiweek):
     return y if w >= 40 else y - 1
 
 
+def window_groups(r):
+    """A label per test window: flu season of the forecast start, or the test recording (neurons)."""
+    if "test_forecast_start" in r:
+        return [season_of(wk) for wk in r["test_forecast_start"]]
+    return r.get("test_group")
+
+
 def coverage_by_season(runs):
-    """{(size, mode): {season: mean coverage over windows and seeds}} for runs with per-window data."""
+    """{(size, mode): {season or recording: mean coverage over windows and seeds}} for runs with per-window data."""
     out = {}
     for size, modes in runs.items():
         for mode, rs in modes.items():
             acc = {}
             for r in rs:
-                if "window_cover90" not in r["test"]:
+                groups = window_groups(r)
+                if "window_cover90" not in r["test"] or groups is None:
                     continue
-                for wk, c in zip(r["test_forecast_start"], r["test"]["window_cover90"]):
-                    acc.setdefault(season_of(wk), []).append(c)
+                for g, c in zip(groups, r["test"]["window_cover90"]):
+                    acc.setdefault(g, []).append(c)
             if acc:
                 out[(size, mode)] = {k: float(np.mean(v)) for k, v in sorted(acc.items())}
     return out
@@ -115,6 +126,7 @@ def section(title, base, runs, with_verdict):
     if base:
         b = f"Persistence {base['persist_crps']:.3f}"
         b += f"; seasonal-naive {base['seasonal_crps']:.3f}" if "seasonal_crps" in base else ""
+        b += f"; history mean {base['mean_crps']:.3f}" if "mean_crps" in base else ""
         lines += [f"Windows: {base['windows']}. Baselines (CRPS): {b}.", ""]
     lines += ["| Size | Pretraining | From scratch | Fine-tuned | Fine-tuned / scratch | Coverage (fine-tuned) "
               "| Seeds | No fine-tuning | Coverage (scratch) | Best step scratch / fine-tuned |",
@@ -143,11 +155,14 @@ def section(title, base, runs, with_verdict):
     if seasons:
         cols = list(seasons)
         all_s = sorted({k for v in seasons.values() for k in v})
-        lines += ["", "90% coverage by season of the forecast start (mean over windows and seeds; target 0.90):", "",
-                  "| Season | " + " | ".join(f"{sz} {m}" for sz, m in cols) + " |", "|---|" + "---|" * len(cols)]
-        for yr in all_s:
-            lines.append(f"| {yr}-{str(yr + 1)[-2:]} | "
-                         + " | ".join(f"{seasons[c][yr]:.2f}" if yr in seasons[c] else "-" for c in cols) + " |")
+        by_season = not any("test_group" in r for modes in runs.values() for rs in modes.values() for r in rs)
+        what, head = (("season of the forecast start", "Season") if by_season else ("test recording", "Recording"))
+        lines += ["", f"90% coverage by {what} (mean over windows and seeds; target 0.90):", "",
+                  f"| {head} | " + " | ".join(f"{sz} {m}" for sz, m in cols) + " |", "|---|" + "---|" * len(cols)]
+        for g in all_s:
+            name = f"{g}-{str(g + 1)[-2:]}" if by_season else str(g)
+            lines.append(f"| {name} | "
+                         + " | ".join(f"{seasons[c][g]:.2f}" if g in seasons[c] else "-" for c in cols) + " |")
     if with_verdict:
         lines += ["", "### Verdict (criteria fixed before running)", ""]
         for size, modes in runs.items():
@@ -167,7 +182,7 @@ def report(root, dataset):
     if not os.path.isdir(root):
         sys.exit(f"No such results folder: {root}")
     lines = [f"# Phase 1: {dataset}", "",
-             "Does pretraining on 8 simulated systems help forecast this real system? CRPS in normalised "
+             "Does pretraining help forecast this real system? CRPS in normalised "
              "units, mean ± sd over seeds; lower is better.", ""]
     for regime, title, v in [("small", "Small-data regime (verdict)", True), ("full", "Full-data regime", False)]:
         base, runs = load(os.path.join(root, f"{dataset}_{regime}"))

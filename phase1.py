@@ -9,7 +9,8 @@ One run = one model (or the baselines) on one real dataset and data regime:
 
   scratch   a fresh model trained only on the real training windows
   finetune  the simulator-pretrained joint model, then trained on the same windows
-  baselines persistence (last value) and seasonal-naive (one period earlier)
+  baselines persistence (last value), and seasonal-naive (one period earlier) or,
+            for data with no period (neurons), the mean of each entity's history
 
 Regimes: `small` uses only the dataset's small-data training range, `full` all of
 it. Both use the same validation windows (best checkpoint kept) and the same
@@ -80,9 +81,13 @@ if os.path.exists(path):
     sys.exit(0)
 
 dev = get_device()
-lo, hi = ds["splits"]["small_train" if args.regime == "small" else "train"]
-episodes = {s: to_episodes(ds["values"], ds["adj"], split_starts(*r))
-            for s, r in [("train", (lo, hi)), ("val", ds["splits"]["val"]), ("test", ds["splits"]["test"])]}
+if "episodes" in ds:          # several separate recordings (neurons): windows prebuilt per split
+    e = ds["episodes"]
+    episodes = {"train": e["small_train" if args.regime == "small" else "train"], "val": e["val"], "test": e["test"]}
+else:                         # one long recording (flu): windows cut from time ranges
+    lo, hi = ds["splits"]["small_train" if args.regime == "small" else "train"]
+    episodes = {s: to_episodes(ds["values"], ds["adj"], split_starts(*r))
+                for s, r in [("train", (lo, hi)), ("val", ds["splits"]["val"]), ("test", ds["splits"]["test"])]}
 tensors = {s: {k: torch.from_numpy(v).to(dev) for k, v in e.items()} for s, (e, _) in episodes.items()}
 counts = {s: len(starts) for s, (_, starts) in episodes.items()}
 print(f"{args.dataset} / {args.regime}: windows {counts} on {dev}")
@@ -95,8 +100,11 @@ def save(res):
     print(f"wrote {path}")
 
 
-res = dict(dataset=args.dataset, regime=args.regime, mode=args.mode, windows=counts,
-           train_range=[int(ds["times"][lo]), int(ds["times"][hi - 1])])
+res = dict(dataset=args.dataset, regime=args.regime, mode=args.mode, windows=counts)
+if "episodes" in ds:
+    res["train_recordings"] = sorted(set(episodes["train"][1]))
+else:
+    res["train_range"] = [int(ds["times"][lo]), int(ds["times"][hi - 1])]
 if args.mode == "baselines":
     test = tensors["test"]
     res["persist_crps"] = point_crps(test)
@@ -106,6 +114,10 @@ if args.mode == "baselines":
             res["seasonal_crps"] = point_crps(test, torch.from_numpy(alt["x"]).to(dev))
         else:
             print(f"seasonal baseline needs lagged data for every test window; skipped ({len(kept)} usable)")
+    else:                     # no period: forecast each entity's mean over its own history
+        alt = test["x"].clone()
+        alt[:, T_CTX:] = test["x"][:, :T_CTX].mean(1, keepdim=True)
+        res["mean_crps"] = point_crps(test, alt)
     save(res)
     sys.exit(0)
 
@@ -129,8 +141,11 @@ metrics = forecast_metrics(model, tensors["test"], limit=counts["test"], per_win
 print(f"  test crps {metrics['crps']:.3f} (persist {metrics['persist_crps']:.3f})  cover90 {metrics['cover90']:.2f}")
 res.update(seed=args.seed, size=size, pretrained=args.pretrained if args.init else None, model=dict(d=args.d, layers=args.layers, heads=args.heads), init=args.init,
            steps=args.steps, stopped_at=hist[-1][0], patience=args.patience, batch=args.batch, lr=lr, precision=args.precision, best_step=best_step, loss=hist,
-           minutes=round((time.time() - t0) / 60, 1), val_steps=val_steps, test=metrics,
-           test_forecast_start=[int(ds["times"][s + T_CTX]) for s in episodes["test"][1]])
+           minutes=round((time.time() - t0) / 60, 1), val_steps=val_steps, test=metrics)
+if "episodes" in ds:
+    res["test_group"] = episodes["test"][1]                   # recording id of each test window
+else:
+    res["test_forecast_start"] = [int(ds["times"][s + T_CTX]) for s in episodes["test"][1]]
 if step0 is not None:
     res["test_step0"] = step0
 save(res)
