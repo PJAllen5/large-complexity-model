@@ -2185,3 +2185,94 @@ The full-data regime is reported without a verdict.
 - pretraining up to ~1.5 h per task (6 tasks), less if it stops early;
 - fine-tuning ~1 h;
 - about 6–9 GPU-h in total. Free.
+
+### 2026-11-22: Tycho experiment result: FAIL (calibration), but Tycho pretraining clears the 10% bar
+
+**Pretraining runs** (ORCA A30, free). Summaries:
+[results_pretrain/](results_pretrain/) (`pretrain.json` only; checkpoints stay
+on ORCA).
+
+| Run | Job | Validation every | Best step (seeds 0/1/2) | Stopped at | Time per seed |
+|---|---|---|---|---|---|
+| tycho | 274573 tasks 0–2 | 4,000 | 4,000 / 4,000 / 4,000 | 52,000 | ~25 min |
+| tycho, dense rerun | 274579 | 250 | 1,500 / 3,500 / 4,250 | 4,500 / 6,500 / 7,250 | 2–4 min |
+| simtycho | 274573 tasks 3–5 | 4,000 | 140,000 / 148,000 / 148,000 | 180,000 (the full budget) | ~86 min |
+
+- **Tycho-only peaked at the first check in every seed**, so where the best
+  checkpoint really was couldn't be seen. Same flaw as flu v1 (2026-11-21).
+  - **Decision, made before any fine-tuning:** rerun with validation every 250
+    steps, and fine-tune from the dense checkpoints.
+  - The dense run found better checkpoints: best Tycho validation NLL
+    0.349–0.354, against 0.359–0.378 for the coarse run.
+  - Tycho alone is used up in ~1,500–4,250 steps (about 6–18 passes over its
+    7,403 training windows).
+- **simtycho did not peak at the first check,** so no rerun was needed.
+  - It used the whole 180,000-step budget: the last new best came 32,000–40,000
+    steps before the end, short of the 48,000 patience needs.
+  - Validation had flattened, so more steps would probably gain little.
+    That's not tested.
+
+**Fine-tuning:** job 274582 (`orca/phase1.sbatch`, 8.5M, both regimes, 3 seeds).
+COMPLETED in 28 min 49 s on orcaga09. Free. Results:
+[results_phase1_tycho/](results_phase1_tycho/), report
+[results_phase1_tycho/flu_PHASE1.md](results_phase1_tycho/flu_PHASE1.md).
+
+**Reproducibility:** the scratch and sims fine-tuned runs reproduce flu v2
+(job 274518) to 4 decimals in all 12 runs.
+
+**Headline, small-data regime** (test CRPS, mean ± sd over 3 seeds; scratch
+0.294 ± 0.004; persistence 0.593; seasonal-naive 0.469)
+
+| Pretraining | Fine-tuned | Ratio to scratch | Coverage fine-tuned | No fine-tuning (CRPS / coverage) | Best fine-tune step |
+|---|---|---|---|---|---|
+| sims | 0.281 ± 0.002 | 0.954 | 0.70 | 0.492 / 0.45–0.52 | 75 |
+| simtycho | 0.270 ± 0.004 | 0.918 | 0.70 | 0.362 / 0.63–0.67 | 50 |
+| **tycho** | **0.245 ± 0.005** | **0.833** | 0.73 | **0.319 / 0.82–0.86** | 100 |
+
+**Full-data regime** (no verdict; scratch 0.266 ± 0.010): sims 0.256 (0.961),
+simtycho 0.255 (0.957), tycho 0.240 (0.900). Coverage 0.76 / 0.70 / 0.78.
+
+**Pre-registered verdict: FAIL for all three.**
+- **sims:** FAIL. Not ≥ 10% better (0.954) and not calibrated (0.70). The same
+  as flu v2.
+- **simtycho:** FAIL. Not ≥ 10% better (0.918); not calibrated (0.70). It does
+  beat sims (0.270 vs 0.281).
+- **tycho:** FAIL on calibration only (0.73).
+  - Pretraining helps: yes, 0.833 (needed ≤ 0.90).
+  - Beats both baselines: yes.
+  - Beats sims: yes (0.245 vs 0.281).
+
+**Findings**
+- **Real epidemic data transfers to flu far better than the simulators.**
+  - The tycho vs scratch gap (0.049) is about 10× the seed sd. All 3 seeds
+    agree (0.240–0.251, against scratch 0.291–0.299).
+  - Before seeing any flu, the Tycho model scores 0.319: better than
+    seasonal-naive (0.469), near scratch (0.294), and far better than the
+    sims model (0.492).
+- **Adding the simulators to Tycho made it worse,** not better: simtycho sits
+  between sims and tycho. Of the outcomes listed before the run, this is
+  "tycho beats sims", not "complementary".
+- **The Tycho model is calibrated before fine-tuning and loses it during
+  fine-tuning.**
+  - 90% coverage with no fine-tuning: 0.82–0.86, inside the target range.
+  - After fine-tuning on 93 flu windows: 0.72–0.74.
+  - So fine-tuning on very little data makes the ranges too narrow. That
+    points at the fine-tuning step, not the pretraining, as the source of the
+    overconfidence.
+  - This was not anticipated; it is an observation, not a tested claim.
+- **The worst seasons are the same for every model:** 2019–20 (COVID's arrival)
+  and 2021–22 (an unusual late season), coverage 0.46–0.62 in the small
+  regime.
+- **Caveat on scope:** Tycho is the same kind of system as flu (US
+  infectious-disease counts by state). This supports "related real data helps".
+  It does not yet support the broad cross-domain LCM idea, and the
+  simulators' small contribution is evidence against it so far.
+
+**What was not done**
+- No calibration fix.
+  - Any fix (wider ranges, fewer fine-tuning steps, a lower fine-tuning
+    learning rate) has to be chosen on validation data and declared before
+    looking at test results.
+  - The flu test coverage has now been seen, so a fix should be judged on a
+    dataset it wasn't tuned on.
+- No 28M runs with Tycho pretraining.
