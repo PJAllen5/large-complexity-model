@@ -1,0 +1,16 @@
+{
+ "dataset": "flu",
+ "regime": "full",
+ "mode": "baselines",
+ "windows": {
+  "train": 511,
+  "val": 42,
+  "test": 517
+ },
+ "train_range": [
+  200240,
+  201339
+ ],
+ "persist_crps": 0.5928726196289062,
+ "seasonal_crps": 0.46851974725723267
+}
