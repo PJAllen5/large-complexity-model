@@ -9,6 +9,9 @@
 #   PHASE1_OUT=~/lcm-runs/phase1_tycho PHASE1_SIZES=8.5M \
 #   PHASE1_VARIANTS="sims=$HOME/lcm-runs/stageA_joint160k tycho=$HOME/lcm-runs/pretrain_tycho simtycho=$HOME/lcm-runs/pretrain_simtycho" \
 #   DATASET=flu sbatch --array=0 orca/phase1.sbatch
+# Neurons (data from `python -m lcm.neurons fetch ~/lcm-runs/neurons` first; LCM_NEURONS overrides the folder):
+#   PHASE1_OUT=~/lcm-runs/phase1_neurons PHASE1_SIZES=8.5M PHASE1_VARIANTS="sims=... tycho=... simtycho=..." \
+#   DATASET=neurons sbatch --array=0 orca/phase1.sbatch
 # Finished runs are skipped, so resubmitting only does what's left.
 #SBATCH --job-name=lcm-phase1
 #SBATCH --partition=short

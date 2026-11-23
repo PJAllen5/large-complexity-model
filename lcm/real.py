@@ -119,4 +119,9 @@ def load_flu(path=os.path.join(DATA_DIR, "flu_hhs_wili.csv")):
                 units="% of doctor visits with influenza-like illness (weighted)")
 
 
-REAL = {"flu": load_flu}
+def load_neurons():
+    from .neurons import load
+    return load()
+
+
+REAL = {"flu": load_flu, "neurons": load_neurons}
